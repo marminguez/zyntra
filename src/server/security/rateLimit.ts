@@ -22,6 +22,11 @@ function getLimit(route: string): number {
  * Returns `true` if the request is allowed, `false` if rate-limited.
  */
 export function checkRateLimit(ip: string, route: string): boolean {
+    // NOTA: este rate limiter es in-memory y no es consistente entre múltiples
+    // instancias (Vercel, Railway con >1 replica). Para producción multi-instancia,
+    // sustituir por Redis con ioredis + sliding window.
+    // TODO: RATE_LIMITER_BACKEND=redis
+    
     const key = `${ip}:${route}`;
     const now = Date.now();
     const limit = getLimit(route);
@@ -43,4 +48,10 @@ export function pruneExpired(): void {
     for (const [key, bucket] of store) {
         if (now > bucket.resetAt) store.delete(key);
     }
+}
+
+// Auto-cleanup cada 5 minutos. .unref() permite que Node.js salga limpiamente.
+if (typeof setInterval !== "undefined") {
+  const _pruneTimer = setInterval(pruneExpired, 5 * 60_000);
+  _pruneTimer.unref?.();
 }

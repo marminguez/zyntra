@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -74,6 +74,7 @@ model Signal {
 
   @@index([patientId])
   @@index([patientId, type])
+  @@index([patientId, ts])
 }
 
 model Baseline {
@@ -100,6 +101,7 @@ model RiskScore {
   explanation String
 
   @@index([patientId])
+  @@index([patientId, ts])
 }
 
 model AuditEvent {

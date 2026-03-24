@@ -17,6 +17,7 @@ export interface RiskResult {
     score: number;    // 0..1
     level: "low" | "medium" | "high";
     explanation: string;
+    confidence: number; // 0..1 — fracción del peso total disponible
 }
 
 /** Weights per domain (must sum to 1). */
@@ -43,16 +44,8 @@ const HORIZON_FACTOR: Record<number, number> = {
  * - Adherence: negative z increases risk (lower adherence → higher risk).
  */
 function zToContribution(domain: keyof ZScores, z: number): number {
-    let raw: number;
-    if (domain === "glucose") {
-        // Higher glucose → higher risk
-        raw = z;
-    } else {
-        // Lower sleep/hrv/activity/adherence → higher risk
-        raw = -z;
-    }
-    // Sigmoid-like clamp into [0,1]
-    return Math.max(0, Math.min(1, 0.5 + raw * 0.15));
+  const raw = domain === "glucose" ? z : -z;
+  return 1 / (1 + Math.exp(-raw * 0.8));
 }
 
 /**
@@ -61,12 +54,14 @@ function zToContribution(domain: keyof ZScores, z: number): number {
  * @param zScores  z-scores per domain (optional keys if data unavailable)
  * @param horizonHrs  24, 48, or 72
  */
-export function computeRisk(zScores: ZScores, horizonHrs: number): RiskResult {
+export const VALID_HORIZONS = [24, 48, 72] as const;
+export type HorizonHrs = typeof VALID_HORIZONS[number];
+
+export function computeRisk(zScores: ZScores, horizonHrs: HorizonHrs): RiskResult {
     const hFactor = HORIZON_FACTOR[horizonHrs] ?? 1.0;
 
     let totalWeight = 0;
     let weightedSum = 0;
-    const drivers: string[] = [];
 
     for (const [domain, weight] of Object.entries(WEIGHTS)) {
         const z = zScores[domain as keyof ZScores];
@@ -75,11 +70,27 @@ export function computeRisk(zScores: ZScores, horizonHrs: number): RiskResult {
         const contribution = zToContribution(domain as keyof ZScores, z);
         weightedSum += contribution * weight;
         totalWeight += weight;
-
-        if (contribution > 0.55) {
-            drivers.push(`${domain}(z=${z.toFixed(2)})`);
-        }
     }
+
+    const allContributions = (Object.entries(WEIGHTS) as [keyof ZScores, number][])
+      .filter(([d]) => zScores[d] !== undefined)
+      .map(([d, w]) => ({
+        domain: d,
+        contribution: zToContribution(d, zScores[d]!),
+        weight: w,
+      }))
+      .sort((a, b) => b.contribution * b.weight - a.contribution * a.weight);
+
+    const drivers = allContributions
+      .filter(c => c.contribution > 0.55)
+      .map(c => `${c.domain}(z=${zScores[c.domain]!.toFixed(2)})`);
+
+    const topSignal = allContributions[0];
+    const explanation = allContributions.length === 0
+      ? `No signal data available (horizon ${horizonHrs}h)`
+      : drivers.length > 0
+        ? `Risk driven by: ${drivers.join(", ")} (horizon ${horizonHrs}h)`
+        : `Elevated risk from ${topSignal.domain} and ${allContributions.length - 1} other signal(s) (horizon ${horizonHrs}h)`;
 
     // Normalise by available weight
     const rawScore = totalWeight > 0 ? weightedSum / totalWeight : 0;
@@ -90,10 +101,5 @@ export function computeRisk(zScores: ZScores, horizonHrs: number): RiskResult {
     else if (score < 0.66) level = "medium";
     else level = "high";
 
-    const explanation =
-        drivers.length > 0
-            ? `Risk driven by: ${drivers.join(", ")} (horizon ${horizonHrs}h)`
-            : `Low overall risk across available signals (horizon ${horizonHrs}h)`;
-
-    return { score, level, explanation };
+    return { score, level, explanation, confidence: totalWeight };
 }

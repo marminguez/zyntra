@@ -5,6 +5,20 @@ import { writeAudit } from "../security/audit";
 
 const META_MAX_LEN = 5000;
 
+function capMeta(meta: Record<string, unknown>, maxLen: number): string {
+  const raw = JSON.stringify(meta);
+  if (raw.length <= maxLen) return raw;
+  const capped: Record<string, unknown> = {};
+  let acc = 2; // "{}"
+  for (const [k, v] of Object.entries(meta)) {
+    const entry = JSON.stringify(k) + ":" + JSON.stringify(v) + ",";
+    if (acc + entry.length > maxLen) break;
+    capped[k] = v;
+    acc += entry.length;
+  }
+  return JSON.stringify(capped);
+}
+
 /** Source → consent field mapping */
 const SOURCE_CONSENT_FIELD: Record<string, "allowCGM" | "allowWearable" | "allowManual"> = {
     CGM: "allowCGM",
@@ -34,9 +48,13 @@ export async function ingestSignal(
         throw new ConsentError("No active consent found for patient");
     }
 
-    const consentField = SOURCE_CONSENT_FIELD[input.source];
-    if (consentField && !consent[consentField]) {
-        throw new ConsentError(`Consent does not allow source ${input.source}`);
+    const EXEMPT_SOURCES = new Set(["SYSTEM"]);
+
+    if (!EXEMPT_SOURCES.has(input.source)) {
+        const consentField = SOURCE_CONSENT_FIELD[input.source];
+        if (!consentField || !consent[consentField]) {
+            throw new ConsentError(`Consent does not allow source ${input.source}`);
+        }
     }
 
     // ── Encryption ───────────────────────────────────────────────
@@ -51,32 +69,34 @@ export async function ingestSignal(
     // ── Meta capping ─────────────────────────────────────────────
     let metaJson: string | undefined;
     if (input.meta) {
-        const raw = JSON.stringify(input.meta);
-        metaJson = raw.length > META_MAX_LEN ? raw.slice(0, META_MAX_LEN) : raw;
+        metaJson = capMeta(input.meta as Record<string, unknown>, META_MAX_LEN);
     }
 
-    // ── Persist ──────────────────────────────────────────────────
-    const signal = await prisma.signal.create({
-        data: {
-            patientId: input.patientId,
-            source: input.source,
-            type: input.type,
-            ts: new Date(input.ts),
-            value,
-            encryptedValue: encryptedValueStr,
-            unit: input.unit,
-            metaJson,
-        },
-    });
-
-    // ── Audit ────────────────────────────────────────────────────
-    await writeAudit({
-        userId,
-        action: "SIGNAL_INGESTED",
-        targetId: signal.id,
-        meta: { type: input.type, source: input.source },
-        ip,
-        ua,
+    // ── Persist & Audit ──────────────────────────────────────────
+    const signal = await prisma.$transaction(async (tx) => {
+        const s = await tx.signal.create({
+            data: {
+                patientId: input.patientId,
+                source: input.source,
+                type: input.type,
+                ts: new Date(input.ts),
+                value,
+                encryptedValue: encryptedValueStr,
+                unit: input.unit,
+                metaJson,
+            },
+        });
+        await tx.auditEvent.create({
+            data: {
+                userId,
+                action: "SIGNAL_INGESTED",
+                targetId: s.id,
+                metaJson: JSON.stringify({ type: input.type, source: input.source }),
+                ip: ip ?? null,
+                ua: ua ?? null,
+            },
+        });
+        return s;
     });
 
     return { id: signal.id };

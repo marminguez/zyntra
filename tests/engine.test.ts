@@ -95,4 +95,24 @@ describe("computeRisk", () => {
         expect(r.level).toBe("high");
         expect(r.score).toBeGreaterThanOrEqual(0.66);
     });
+
+    // --- GRUPO 8 Tests ---
+    it("empty zScores -> score 0, confidence 0, level low", () => {
+        const result = computeRisk({}, 24);
+        expect(result.score).toBe(0);
+        expect(result.confidence).toBe(0);
+        expect(result.level).toBe("low");
+    });
+
+    it("glucose 10 -> score near 1, level high", () => {
+        const result = computeRisk({ glucose: 10 }, 24);
+        expect(result.score).toBeGreaterThan(0.9);
+        expect(result.level).toBe("high");
+    });
+
+    it("rejects invalid horizons in compilation", () => {
+        // TypeScript debería rechazarlo en compilación
+        // @ts-expect-error
+        computeRisk({ glucose: 0 }, 999);
+    });
 });
