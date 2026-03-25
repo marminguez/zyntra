@@ -103,3 +103,80 @@ export function computeRisk(zScores: ZScores, horizonHrs: HorizonHrs): RiskResul
 
     return { score, level, explanation, confidence: totalWeight };
 }
+
+import { execSync } from "child_process";
+import path from "path";
+
+export interface MLRiskResult {
+  score:        number;
+  level:        "low" | "medium" | "high";
+  confidence:   number;
+  modelVersion: string;
+  featuresUsed: string[];
+  fallback:     boolean;
+  fallbackResult?: RiskResult;
+}
+
+/**
+ * Calls the Python ML model via subprocess.
+ * Falls back to computeRisk() if the model is not available.
+ */
+export function computeRiskML(zScores: ZScores, horizonHrs: HorizonHrs): MLRiskResult {
+  const input = JSON.stringify({
+    z_glucose:     zScores.glucose     ?? null,
+    z_hrv:         zScores.hrv         ?? null,
+    z_sleep_score: zScores.sleep       ?? null,
+    z_steps:       zScores.activity    ?? null,
+    z_adherence:   zScores.adherence   ?? null,
+  });
+
+  const modelPath = process.env.ML_MODEL_PATH ?? "ml/model.pkl";
+
+  try {
+    const scriptPath = path.resolve("ml/predict.py");
+    // Handle Windows Python executable
+    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    const output = execSync(`${pythonCmd} "${scriptPath}"`, {
+      input,
+      encoding: "utf-8",
+      timeout:  5000,
+      env:      { ...process.env, MODEL_PATH: modelPath },
+    });
+
+    const result = JSON.parse(output.trim()) as {
+      score:         number;
+      confidence:    number;
+      model_version: string;
+      features_used: string[];
+      fallback:      boolean;
+      error?:        string;
+    };
+
+    if (result.fallback || result.error) {
+      const fallback = computeRisk(zScores, horizonHrs);
+      return { ...fallback, modelVersion: "rule-based-fallback", featuresUsed: [], fallback: true, fallbackResult: fallback };
+    }
+
+    // Apply horizon decay to ML score
+    const HORIZON_FACTOR: Record<number, number> = { 24: 1.0, 48: 0.93, 72: 0.88 };
+    const decayedScore = Math.max(0, Math.min(1, result.score * (HORIZON_FACTOR[horizonHrs] ?? 1.0)));
+
+    let level: "low" | "medium" | "high";
+    if (decayedScore < 0.33) level = "low";
+    else if (decayedScore < 0.66) level = "medium";
+    else level = "high";
+
+    return {
+      score:        decayedScore,
+      level,
+      confidence:   result.confidence,
+      modelVersion: result.model_version,
+      featuresUsed: result.features_used,
+      fallback:     false,
+    };
+  } catch {
+    // Python not available or model error — fall back to rule engine
+    const fallback = computeRisk(zScores, horizonHrs);
+    return { ...fallback, modelVersion: "rule-based-fallback", featuresUsed: [], fallback: true, fallbackResult: fallback };
+  }
+}

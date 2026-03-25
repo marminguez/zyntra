@@ -10,6 +10,17 @@ interface Driver {
     direction: "up" | "down";
 }
 
+interface RiskScoreItem {
+    id?: string;
+    horizonHrs: number;
+    score: number;
+    level: "low" | "medium" | "high";
+    explanation: string;
+    confidence?: number;
+    featuresUsed?: string[];
+    modelVersion?: string;
+}
+
 interface MLPayload {
     ok: boolean;
     usedModel: "ml" | "zscore";
@@ -29,7 +40,7 @@ interface MLPayload {
         hypo_12: Driver[];
         instability_24: Driver[];
     };
-    riskScores?: any[];
+    riskScores?: RiskScoreItem[];
 }
 
 export default function DashboardPage() {
@@ -40,10 +51,14 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
+    const [isSyncingFitbit, setIsSyncingFitbit] = useState(false);
+    const [isSyncingLibre, setIsSyncingLibre] = useState(false);
+    const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
     if (status === "loading") {
         return (
-            <div className="container">
-                <p className="page-subtitle">Loading…</p>
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                <p className="text-slate-500 font-medium">Loading...</p>
             </div>
         );
     }
@@ -58,6 +73,7 @@ export default function DashboardPage() {
         setLoading(true);
         setError("");
         setPayload(null);
+        setSyncMessage(null);
 
         try {
             const res = await fetch("/app-api/risk", {
@@ -79,13 +95,61 @@ export default function DashboardPage() {
         }
     }
 
+    async function handleSyncFitbit() {
+        if (!patientId.trim()) return;
+        setIsSyncingFitbit(true);
+        setSyncMessage(null);
+        try {
+            const res = await fetch("/app-api/integrations/fitbit/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ patientId }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setSyncMessage({ type: "success", text: "Fitbit synced successfully" });
+            } else {
+                setSyncMessage({ type: "error", text: `Sync failed: ${data.error || "Unknown error"}` });
+            }
+        } catch (err) {
+            setSyncMessage({ type: "error", text: "Sync failed: Network error" });
+        } finally {
+            setIsSyncingFitbit(false);
+        }
+    }
+
+    async function handleSyncLibre() {
+        if (!patientId.trim()) return;
+        setIsSyncingLibre(true);
+        setSyncMessage(null);
+        try {
+            const res = await fetch("/app-api/integrations/freestyle/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ patientId }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setSyncMessage({ type: "success", text: "FreeStyle CGM synced successfully" });
+            } else {
+                setSyncMessage({ type: "error", text: `Sync failed: ${data.error || "Unknown error"}` });
+            }
+        } catch (err) {
+            setSyncMessage({ type: "error", text: "Sync failed: Network error" });
+        } finally {
+            setIsSyncingLibre(false);
+        }
+    }
+
     const renderDrivers = (drivers: Driver[]) => {
-        if (!drivers || drivers.length === 0) return <p className="text-secondary text-sm">No significant drivers</p>;
+        if (!drivers || drivers.length === 0) return <p className="text-slate-500 text-sm">No significant drivers</p>;
         return (
-            <ul style={{ listStyle: "none", padding: 0, margin: "0.5rem 0 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+            <ul className="text-sm text-slate-500 mt-2 space-y-1">
                 {drivers.map((d, i) => (
-                    <li key={i} style={{ marginBottom: "0.25rem" }}>
-                        <span style={{ color: d.direction === "up" ? "#ff4d4f" : "#52c41a", marginRight: "6px" }}>
+                    <li key={i} className="flex items-center gap-2">
+                        <span className={`font-bold ${d.direction === "up" ? "text-red-500" : "text-green-500"}`}>
                             {d.direction === "up" ? "↑" : "↓"}
                         </span>
                         {d.feature.replace("delta_", "Δ ")}
@@ -96,159 +160,284 @@ export default function DashboardPage() {
     };
 
     return (
-        <div className="container pt-8 pb-12">
-            <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem" }}>
-                <div>
-                    <h1 className="page-title">Zyntra Intelligence</h1>
-                    <p className="page-subtitle" style={{ marginBottom: 0 }}>
-                        Diabetes Predictive Layer · {(session.user as any)?.role}
-                    </p>
-                </div>
-                <button className="btn btn-primary" onClick={() => signOut({ callbackUrl: "/login" })} style={{ fontSize: "0.8rem", padding: "0.5rem 1rem" }}>
-                    Sign Out
-                </button>
-            </header>
-
-            <div className="card animate-in" style={{ marginBottom: "1.5rem" }}>
-                <h2 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "1rem" }}>Predictive Horizons</h2>
-                <div style={{ display: "flex", gap: "0.75rem" }}>
-                    <input
-                        id="patient-id"
-                        className="input"
-                        placeholder="Patient ID"
-                        value={patientId}
-                        onChange={(e) => setPatientId(e.target.value)}
-                        style={{ maxWidth: 360 }}
-                    />
-                    <button className="btn btn-primary" onClick={fetchRisk} disabled={loading}>
-                        {loading ? "Computing…" : "Run"}
+        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12">
+                <header className="flex items-center justify-between mb-8">
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-900">Zyntra Intelligence</h1>
+                        <p className="text-slate-500 m-0">
+                            Diabetes Predictive Layer · {(session.user as any)?.role}
+                        </p>
+                    </div>
+                    <button 
+                        aria-label="Sign out of Zyntra"
+                        className="bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-lg px-4 py-2 transition-colors min-h-[44px] min-w-[44px] focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                        onClick={() => signOut({ callbackUrl: "/login" })}
+                    >
+                        Sign Out
                     </button>
-                </div>
-                {error && <p className="error-msg" style={{ marginTop: "0.75rem" }}>{error}</p>}
-            </div>
+                </header>
 
-            {/* Disclaimer always visible when there is a payload */}
-            {payload && (
-                <div style={{ marginBottom: "1.5rem", padding: "1rem", backgroundColor: "rgba(255, 170, 0, 0.1)", border: "1px solid rgba(255, 170, 0, 0.4)", borderRadius: "6px", color: "var(--text-primary)" }}>
-                    <strong>Disclaimer:</strong> Zyntra does not make clinical decisions. Human supervision required.
-                </div>
-            )}
-
-            {payload && payload.usedModel === "ml" && (
-                <>
-                    {/* PCI Visualizer */}
-                    <div className="card animate-in" style={{ marginBottom: "1.5rem" }}>
-                        <h3 className="stat-label" style={{ marginBottom: "0.5rem" }}>Physiological Coherence Index (PCI)</h3>
-                        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                            <div style={{ flex: 1, height: "12px", background: "linear-gradient(90deg, #52c41a, #faad14, #ff4drf, #cf1322)", borderRadius: "6px", overflow: "hidden", position: "relative" }}>
-                                <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(payload.pci ?? 0) * 100}%`, width: "4px", backgroundColor: "#fff", border: "1px solid #000" }} />
-                            </div>
-                            <span style={{ fontWeight: 600, fontSize: "1.2rem", width: "60px", textAlign: "right" }}>
-                                {((payload.pci ?? 0) * 100).toFixed(1)}
-                            </span>
-                        </div>
-                        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>0 = High Coherence, 100 = Systemic Strain</p>
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+                    <h2 className="text-slate-800 font-semibold text-lg mb-4">Patient</h2>
+                    <div className="flex gap-3 mb-6">
+                        <label htmlFor="patient-id" className="sr-only">Patient ID</label>
+                        <input
+                            id="patient-id"
+                            className="border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 w-full max-w-sm min-h-[44px]"
+                            placeholder="Patient ID"
+                            value={patientId}
+                            onChange={(e) => setPatientId(e.target.value)}
+                        />
+                        <button 
+                            aria-label="Calculate Risk for this patient"
+                            className="bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-lg px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] min-w-[44px] focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 flex items-center justify-center"
+                            onClick={fetchRisk}
+                            disabled={loading || !patientId.trim()}
+                            aria-busy={loading}
+                        >
+                            {loading ? (
+                                <>
+                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Calculating risk...
+                                </>
+                            ) : "Calculate Risk"}
+                        </button>
                     </div>
 
-                    {/* 4 Cards Grid */}
-                    <div className="grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.5rem" }}>
+                    {error && <p className="text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-6">{error}</p>}
 
-                        {/* 1. Hyper Risk */}
-                        <div className="card animate-in">
-                            <h3 className="stat-label">Hyper Risk</h3>
-                            <div style={{ display: "flex", justifyContent: "space-between", margin: "1rem 0" }}>
-                                <div>
-                                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>24h Horizon</p>
-                                    <p style={{ fontWeight: 700, fontSize: "1.2rem" }}>{((payload.p_hyper_24 ?? 0) * 100).toFixed(1)}%</p>
-                                </div>
-                                <div>
-                                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>72h Horizon</p>
-                                    <p style={{ fontWeight: 700, fontSize: "1.2rem" }}>{((payload.p_hyper_72 ?? 0) * 100).toFixed(1)}%</p>
-                                </div>
-                            </div>
-                            <p style={{ fontWeight: 600, fontSize: "0.9rem" }}>Why this?</p>
-                            {renderDrivers(payload.drivers?.hyper_24 ?? [])}
+                    <div className="border-t border-slate-100 pt-6">
+                        <h2 className="text-slate-800 font-semibold text-lg mb-4">Data Sources & Integrations</h2>
+                        
+                        <div className="flex flex-wrap gap-3 items-center">
+                            <a 
+                                href="/app-api/integrations/fitbit/connect"
+                                aria-label="Connect Fitbit account"
+                                className="border border-teal-600 text-teal-600 hover:bg-teal-50 font-medium rounded-lg px-4 py-2 transition-colors min-h-[44px] min-w-[44px] inline-flex items-center justify-center focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                            >
+                                Connect Fitbit
+                            </a>
+
+                            <button
+                                aria-label="Sync Fitbit data for this patient"
+                                className="bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-lg px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] min-w-[44px] focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 flex items-center justify-center"
+                                onClick={handleSyncFitbit}
+                                disabled={isSyncingFitbit || !patientId.trim()}
+                                aria-busy={isSyncingFitbit}
+                            >
+                                {isSyncingFitbit ? (
+                                    <>
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Syncing...
+                                    </>
+                                ) : "Sync Fitbit"}
+                            </button>
+
+                            <button
+                                aria-label="Sync FreeStyle CGM data for this patient"
+                                className="bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-lg px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] min-w-[44px] focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 flex items-center justify-center"
+                                onClick={handleSyncLibre}
+                                disabled={isSyncingLibre || !patientId.trim()}
+                                aria-busy={isSyncingLibre}
+                            >
+                                {isSyncingLibre ? (
+                                    <>
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Syncing...
+                                    </>
+                                ) : "Sync FreeStyle CGM"}
+                            </button>
                         </div>
+                        
+                        {syncMessage && (
+                            <p className={`mt-4 ${syncMessage.type === "success" ? "text-green-700 bg-green-50 border border-green-200" : "text-red-700 bg-red-50 border border-red-200"} rounded-lg px-3 py-2 max-w-lg`}>
+                                {syncMessage.text}
+                            </p>
+                        )}
+                    </div>
+                </div>
 
-                        {/* 2. Hypo Risk */}
-                        <div className="card animate-in">
-                            <h3 className="stat-label">Hypo Risk</h3>
-                            <div style={{ display: "flex", justifyContent: "space-between", margin: "1rem 0" }}>
-                                <div>
-                                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>12h Horizon</p>
-                                    <p style={{ fontWeight: 700, fontSize: "1.2rem" }}>{((payload.p_hypo_12 ?? 0) * 100).toFixed(1)}%</p>
-                                </div>
-                                <div>
-                                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>24h Horizon</p>
-                                    <p style={{ fontWeight: 700, fontSize: "1.2rem" }}>{((payload.p_hypo_24 ?? 0) * 100).toFixed(1)}%</p>
-                                </div>
-                            </div>
-                            <p style={{ fontWeight: 600, fontSize: "0.9rem" }}>Why this?</p>
-                            {renderDrivers(payload.drivers?.hypo_12 ?? [])}
-                        </div>
+                {payload && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-4 mb-6">
+                        <strong>Disclaimer:</strong> Zyntra does not make clinical decisions. Human supervision required.
+                    </div>
+                )}
 
-                        {/* 3. Global Instability */}
-                        <div className="card animate-in">
-                            <h3 className="stat-label">Global Instability</h3>
-                            <div style={{ display: "flex", justifyContent: "space-between", margin: "1rem 0" }}>
-                                <div>
-                                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>24h Horizon</p>
-                                    <p style={{ fontWeight: 700, fontSize: "1.2rem" }}>{((payload.global_24 ?? 0) * 100).toFixed(1)}%</p>
+                {payload && payload.usedModel === "ml" && (
+                    <>
+                        {/* PCI Visualizer */}
+                        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+                            <h3 className="text-slate-800 font-semibold text-lg mb-3">Physiological Coherence Index (PCI)</h3>
+                            <div className="flex items-center gap-4">
+                                <div className="flex-1 h-3 rounded-full overflow-hidden relative" style={{ background: "linear-gradient(90deg, #52c41a, #faad14, #ff4d4f, #cf1322)" }}>
+                                    <div className="absolute top-0 bottom-0 w-1 bg-white border border-black" style={{ left: `${(payload.pci ?? 0) * 100}%` }} />
                                 </div>
-                                <div>
-                                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>72h Horizon</p>
-                                    <p style={{ fontWeight: 700, fontSize: "1.2rem" }}>{((payload.global_72 ?? 0) * 100).toFixed(1)}%</p>
-                                </div>
-                            </div>
-                            <p style={{ fontWeight: 600, fontSize: "0.9rem" }}>Why this?</p>
-                            {renderDrivers(payload.drivers?.instability_24 ?? [])}
-                        </div>
-
-                        {/* 4. Needs Human Review */}
-                        <div className="card animate-in" style={{ backgroundColor: payload.needs_human_review ? "rgba(207, 19, 34, 0.05)" : "transparent", border: payload.needs_human_review ? "1px solid #cf1322" : undefined }}>
-                            <h3 className="stat-label" style={{ color: payload.needs_human_review ? "#cf1322" : undefined }}>Needs Human Review</h3>
-                            <div style={{ margin: "1rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                <span className={`badge badge-${payload.needs_human_review ? "high" : "low"}`} style={{ fontSize: "1rem" }}>
-                                    {payload.needs_human_review ? "FLAGGED" : "CLEAR"}
+                                <span className="font-bold text-xl text-slate-900 w-16 text-right">
+                                    {((payload.pci ?? 0) * 100).toFixed(1)}
                                 </span>
                             </div>
-                            {payload.needs_human_review && payload.warning && (
-                                <p style={{ color: "#cf1322", fontSize: "0.95rem", fontWeight: 600, marginTop: "0.75rem" }}>
-                                    {payload.warning}
-                                </p>
-                            )}
+                            <p className="text-sm text-slate-500 mt-2">0 = High Coherence, 100 = Systemic Strain</p>
                         </div>
 
+                        {/* 4 Cards Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
+                            {/* 1. Hyper Risk */}
+                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+                                <h3 className="text-slate-800 font-semibold text-lg mb-4">Hyper Risk</h3>
+                                <div className="flex justify-between mb-4">
+                                    <div>
+                                        <p className="text-sm text-slate-500 mb-1">24h Horizon</p>
+                                        <p className="text-xl font-bold text-slate-900">{((payload.p_hyper_24 ?? 0) * 100).toFixed(1)}%</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-slate-500 mb-1">72h Horizon</p>
+                                        <p className="text-xl font-bold text-slate-900">{((payload.p_hyper_72 ?? 0) * 100).toFixed(1)}%</p>
+                                    </div>
+                                </div>
+                                <p className="font-semibold text-sm text-slate-900">Why this?</p>
+                                {renderDrivers(payload.drivers?.hyper_24 ?? [])}
+                            </div>
+
+                            {/* 2. Hypo Risk */}
+                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+                                <h3 className="text-slate-800 font-semibold text-lg mb-4">Hypo Risk</h3>
+                                <div className="flex justify-between mb-4">
+                                    <div>
+                                        <p className="text-sm text-slate-500 mb-1">12h Horizon</p>
+                                        <p className="text-xl font-bold text-slate-900">{((payload.p_hypo_12 ?? 0) * 100).toFixed(1)}%</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-slate-500 mb-1">24h Horizon</p>
+                                        <p className="text-xl font-bold text-slate-900">{((payload.p_hypo_24 ?? 0) * 100).toFixed(1)}%</p>
+                                    </div>
+                                </div>
+                                <p className="font-semibold text-sm text-slate-900">Why this?</p>
+                                {renderDrivers(payload.drivers?.hypo_12 ?? [])}
+                            </div>
+
+                            {/* 3. Global Instability */}
+                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+                                <h3 className="text-slate-800 font-semibold text-lg mb-4">Global Instability</h3>
+                                <div className="flex justify-between mb-4">
+                                    <div>
+                                        <p className="text-sm text-slate-500 mb-1">24h Horizon</p>
+                                        <p className="text-xl font-bold text-slate-900">{((payload.global_24 ?? 0) * 100).toFixed(1)}%</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-slate-500 mb-1">72h Horizon</p>
+                                        <p className="text-xl font-bold text-slate-900">{((payload.global_72 ?? 0) * 100).toFixed(1)}%</p>
+                                    </div>
+                                </div>
+                                <p className="font-semibold text-sm text-slate-900">Why this?</p>
+                                {renderDrivers(payload.drivers?.instability_24 ?? [])}
+                            </div>
+
+                            {/* 4. Needs Human Review */}
+                            <div className={`border rounded-xl shadow-sm p-5 ${payload.needs_human_review ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
+                                <h3 className={`font-semibold text-lg mb-4 ${payload.needs_human_review ? 'text-red-700' : 'text-slate-800'}`}>Needs Human Review</h3>
+                                <div className="mb-4 flex items-center gap-2">
+                                    <span className={`px-3 py-1.5 rounded-full text-sm font-semibold ${payload.needs_human_review ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                                        {payload.needs_human_review ? "FLAGGED" : "CLEAR"}
+                                    </span>
+                                </div>
+                                {payload.needs_human_review && payload.warning && (
+                                    <p className="text-red-700 text-sm font-semibold mt-2">
+                                        {payload.warning}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {payload && payload.usedModel === "zscore" && (
+                    <div>
+                        <h2 className="text-slate-800 font-semibold text-lg mb-4">Risk Assessment</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {payload.riskScores?.map((rs, idx) => {
+                                const confPct = Math.round((rs.confidence ?? 1.0) * 100);
+                                let confColorClass = "bg-red-100 text-red-800";
+                                if (confPct >= 80) confColorClass = "bg-green-100 text-green-800";
+                                else if (confPct >= 50) confColorClass = "bg-amber-100 text-amber-800";
+
+                                let levelColorClass = "bg-green-100 text-green-800";
+                                if (rs.level === "high") levelColorClass = "bg-red-100 text-red-800";
+                                else if (rs.level === "medium") levelColorClass = "bg-amber-100 text-amber-800";
+
+                                const levelCapitalized = rs.level.charAt(0).toUpperCase() + rs.level.slice(1);
+
+                                return (
+                                    <div key={idx} role="region" aria-label={`Risk score for ${rs.horizonHrs}h horizon`} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 flex flex-col">
+                                        <h3 className="text-slate-500 font-medium text-xs uppercase tracking-wider mb-2">Horizon</h3>
+                                        <p className="text-2xl font-bold text-slate-900 mb-4">{rs.horizonHrs}h</p>
+
+                                        <div className="flex items-center justify-between mb-3">
+                                            <span className="text-slate-500 text-sm">Risk Level</span>
+                                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${levelColorClass}`}>
+                                                {levelCapitalized}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between mb-4">
+                                            <span className="text-slate-500 text-sm">Score</span>
+                                            <span className="text-slate-900 font-bold">{(rs.score * 100).toFixed(1)}%</span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
+                                            <span className="text-slate-500 text-sm">Model Confidence</span>
+                                            <span aria-label={`Model confidence: ${confPct}%`} className={`px-2.5 py-1 rounded-full text-xs font-semibold ${confColorClass}`}>
+                                                {confPct}%
+                                            </span>
+                                        </div>
+
+                                        <div className="mb-4 flex-grow">
+                                            <span className="text-slate-500 text-sm block mb-1">Explanation</span>
+                                            <p className="text-slate-700 text-sm leading-relaxed">{rs.explanation}</p>
+                                        </div>
+
+                                        {rs.featuresUsed && rs.featuresUsed.length > 0 && (
+                                            <details className="mb-4 group">
+                                                <summary className="text-slate-700 text-sm font-medium cursor-pointer hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded ring-offset-2">
+                                                    Features used by the model
+                                                </summary>
+                                                <ul className="mt-3 text-sm text-slate-600 list-disc pl-5 space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                                    {rs.featuresUsed.map(f => (
+                                                        <li key={f}>{f}</li>
+                                                    ))}
+                                                </ul>
+                                            </details>
+                                        )}
+
+                                        {rs.modelVersion && (
+                                            <div className="mt-auto pt-4 border-t border-slate-100">
+                                                <span className="text-slate-400 text-xs">Model version: {rs.modelVersion}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
-                </>
-            )}
+                )}
 
-            {payload && payload.usedModel === "zscore" && (
-                <div className="grid-3">
-                    {payload.riskScores?.map((rs) => (
-                        <div key={rs.id} className="card animate-in">
-                            <p className="stat-label">{rs.horizonHrs}h Horizon</p>
-                            <p className="stat-value" style={{ marginTop: "0.5rem" }}>
-                                {(rs.score * 100).toFixed(1)}%
-                            </p>
-                            <span className={`badge badge-${rs.level}`} style={{ marginTop: "0.75rem" }}>
-                                {rs.level}
-                            </span>
-                            <p style={{ marginTop: "0.75rem", fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                                {rs.explanation}
-                            </p>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {!payload && !error && !loading && (
-                <div className="card animate-in" style={{ textAlign: "center" }}>
-                    <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-                        Enter a Patient ID and click <strong>Run</strong> to compute diabetic ML risk horizons.
-                    </p>
-                </div>
-            )}
+                {!payload && !error && !loading && (
+                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
+                        <p className="text-slate-500 text-lg">
+                            Enter a patient ID and click <strong className="text-slate-700 font-semibold">Calculate Risk</strong> to see results.
+                        </p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

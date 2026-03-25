@@ -1,70 +1,79 @@
-import pandas as pd
+"""
+Trains an XGBoost deterioration risk model on the synthetic T1DM dataset.
+Features: z-scores of 5 signal domains.
+Target: binary deterioration in next 24h.
+Outputs: ml/model.pkl (joblib) + ml/model_meta.json
+"""
 import json
-import os
-from sklearn.linear_model import LogisticRegression
+import joblib
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from sklearn.model_selection import GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import roc_auc_score
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import roc_auc_score, classification_report
+from xgboost import XGBClassifier
 
-TARGETS = [
-    "y_hyper_24",
-    "y_hyper_72",
-    "y_hypo_12",
-    "y_hypo_24",
-    "y_tir_drop_24",
-    "y_tir_drop_72",
-    "y_instability_24",
-    "y_instability_72"
-]
+FEATURES = ["z_glucose", "z_hrv", "z_sleep_score", "z_steps", "z_adherence"]
+TARGET   = "label_24h"
 
-# The level 2 model feature structure exactly as requested
-FEATURES = [
-    "delta_glucose_cv",
-    "delta_TAR",
-    "delta_TBR",
-    "pci",
-    "glucose_trend_7d",
-    "delta_sleep",
-    "delta_stress"
-]
+print("Loading synthetic dataset...")
+df = pd.read_parquet("ml/synthetic_t1dm.parquet")
+df = df.dropna(subset=FEATURES)
 
-def train_models():
-    if not os.path.exists("ml/data/synthetic.csv"):
-        print("Dataset not found. Run generate_synthetic.py first.")
-        return
+X = df[FEATURES].values
+y = df[TARGET].values
+groups = df["patient_id"].values
 
-    df = pd.read_csv("ml/data/synthetic.csv")
-    
-    X = df[FEATURES]
-    
-    os.makedirs("ml/models", exist_ok=True)
+# Patient-aware split: train on 10 patients, test on 2
+splitter = GroupShuffleSplit(n_splits=1, test_size=2/12, random_state=42)
+train_idx, test_idx = next(splitter.split(X, y, groups))
 
-    for target in TARGETS:
-        y = df[target]
-        
-        # Scaling
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        
-        # Modeling
-        model = LogisticRegression(max_iter=1000)
-        model.fit(X_scaled, y)
-        
-        # Eval
-        preds = model.predict_proba(X_scaled)[:, 1]
-        auc = roc_auc_score(y, preds)
-        print(f"Target: {target} | AUC: {auc:.4f}")
-        
-        # Export
-        export_data = {
-            "feature_names": FEATURES,
-            "scaler_mean": scaler.mean_.tolist(),
-            "scaler_scale": scaler.scale_.tolist(),
-            "coef": model.coef_[0].tolist(),
-            "intercept": model.intercept_[0]
-        }
-        
-        with open(f"ml/models/{target}.json", "w") as f:
-            json.dump(export_data, f, indent=2)
+X_train, X_test = X[train_idx], X[test_idx]
+y_train, y_test = y[train_idx], y[test_idx]
 
-if __name__ == "__main__":
-    train_models()
+print(f"Train: {len(X_train):,} | Test: {len(X_test):,}")
+print(f"Positive rate train: {y_train.mean():.1%} | test: {y_test.mean():.1%}")
+
+# Scale + XGBoost
+scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum()
+model = Pipeline([
+    ("scaler", StandardScaler()),
+    ("clf", XGBClassifier(
+        n_estimators=300,
+        max_depth=4,
+        learning_rate=0.05,
+        scale_pos_weight=scale_pos_weight,
+        eval_metric="auc",
+        random_state=42,
+        n_jobs=-1,
+    )),
+])
+
+print("Training XGBoost...")
+model.fit(X_train, y_train)
+
+y_prob = model.predict_proba(X_test)[:, 1]
+auc = roc_auc_score(y_test, y_prob)
+print(f"\nTest AUC: {auc:.4f}")
+print(classification_report(y_test, (y_prob > 0.5).astype(int),
+                             target_names=["stable", "deterioration"]))
+
+# Save model
+Path("ml").mkdir(exist_ok=True)
+joblib.dump(model, "ml/model.pkl")
+
+# Save metadata for the API
+meta = {
+    "features": FEATURES,
+    "auc": round(auc, 4),
+    "threshold": 0.5,
+    "model_type": "xgboost_pipeline",
+    "dataset": "synthetic_ohio_calibrated",
+    "version": "1.0.0",
+}
+with open("ml/model_meta.json", "w") as f:
+    json.dump(meta, f, indent=2)
+
+print("\nSaved ml/model.pkl and ml/model_meta.json")

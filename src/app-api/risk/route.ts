@@ -4,7 +4,7 @@ import { checkRateLimit } from "@/server/security/rateLimit";
 import { RiskRequestSchema } from "@/server/zyntra/schemas";
 import { prisma } from "@/server/db/prisma";
 import { decryptValue } from "@/server/security/crypto";
-import { computeRisk, ZScores } from "@/server/zyntra/engine";
+import { computeRisk, computeRiskML, VALID_HORIZONS, HorizonHrs, ZScores } from "@/server/zyntra/engine";
 import { writeAudit } from "@/server/security/audit";
 import { loadModels, computePCI, predictTarget } from "@/server/zyntra/inference";
 
@@ -202,17 +202,20 @@ export async function POST(req: NextRequest) {
 
             const horizons = [24, 48, 72] as const;
             for (const h of horizons) {
-                const risk = computeRisk(zScores, h);
+                const mlResult = computeRiskML(zScores, h as HorizonHrs);
                 const row = await prisma.riskScore.create({
                     data: {
                         patientId,
                         horizonHrs: h,
-                        score: risk.score,
-                        level: risk.level,
-                        explanation: risk.explanation,
+                        score: mlResult.score,
+                        level: mlResult.level,
+                        confidence:  mlResult.confidence,
+                        explanation: mlResult.fallback
+                          ? mlResult.fallbackResult?.explanation ?? "Rule-based fallback"
+                          : `ML model v${mlResult.modelVersion} — features: ${mlResult.featuresUsed.join(", ")} (horizon ${h}h)`,
                     },
                 });
-                results.push({ horizonHrs: h, score: risk.score, level: risk.level, id: row.id, explanation: risk.explanation });
+                results.push({ horizonHrs: h, score: mlResult.score, level: mlResult.level, id: row.id, explanation: row.explanation, confidence: mlResult.confidence });
             }
             payload = { usedModel, results };
         }

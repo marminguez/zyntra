@@ -43,6 +43,7 @@ model Patient {
   signals    Signal[]
   baselines  Baseline[]
   riskScores RiskScore[]
+  integrationTokens IntegrationToken[]
 }
 
 model Consent {
@@ -99,6 +100,7 @@ model RiskScore {
   score       Float
   level       String
   explanation String
+  confidence  Float    @default(1.0)
 
   @@index([patientId])
   @@index([patientId, ts])
@@ -114,4 +116,20 @@ model AuditEvent {
   ip        String?
   ua        String?
   createdAt DateTime @default(now())
+}
+
+model IntegrationToken {
+  id           String   @id @default(cuid())
+  patientId    String
+  patient      Patient  @relation(fields: [patientId], references: [id])
+  provider     String   // "fitbit" | "freestyle"
+  accessToken  String   // cifrado con encryptValue()
+  refreshToken String?  // cifrado con encryptValue()
+  expiresAt    DateTime?
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([patientId, provider])
+  @@index([patientId])
 }
