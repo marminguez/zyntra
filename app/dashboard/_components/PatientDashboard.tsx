@@ -14,6 +14,7 @@ import { HistoryView } from "./views/HistoryView";
 
 export function PatientDashboard() {
     const { data: session } = useSession();
+    const patientId = (session?.user as any)?.patientId ?? (session?.user as any)?.id;
     // Keep existing payload for potential background updates
     const [payload, setPayload] = useState<MLPayload | null>(null);
     const [loading, setLoading] = useState(false);
@@ -33,17 +34,21 @@ export function PatientDashboard() {
             setActiveTab("DEVICES");
             setSyncMessage({ type: "success", text: "Fitbit connected successfully!" });
         }
+        if (searchParams?.get("fitbit") === "error") {
+            setActiveTab("DEVICES");
+            setSyncMessage({ type: "error", text: decodeURIComponent(searchParams.get("message") ?? "Fitbit connection failed") });
+        }
     }, [searchParams]);
 
     useEffect(() => {
         const fetchMyRisk = async () => {
-            if (!(session?.user as any)?.id) return;
+            if (!patientId) return;
             setLoading(true);
             try {
                 const res = await fetch("/app-api/risk", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ patientId: (session?.user as any)?.id }),
+                    body: JSON.stringify({ patientId }),
                 });
 
                 if (res.ok) {
@@ -57,10 +62,10 @@ export function PatientDashboard() {
             }
         };
 
-        if ((session?.user as any)?.id && activeTab === "DASHBOARD") {
+        if (patientId && activeTab === "DASHBOARD") {
             fetchMyRisk();
         }
-    }, [(session?.user as any)?.id, activeTab]);
+    }, [patientId, activeTab]);
 
     async function handleSyncFitbit() {
         setIsSyncingFitbit(true);
@@ -70,7 +75,7 @@ export function PatientDashboard() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ patientId: (session?.user as any)?.id }),
+                body: JSON.stringify({ patientId }),
             });
             const data = await res.json();
             if (res.ok) {
@@ -93,7 +98,7 @@ export function PatientDashboard() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ patientId: (session?.user as any)?.id }),
+                body: JSON.stringify({ patientId }),
             });
             const data = await res.json();
             if (res.ok) {
