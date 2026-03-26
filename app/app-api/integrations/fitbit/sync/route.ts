@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/src/server/auth/rbac";
-import { syncFitbitForPatient } from "@/src/server/integrations/fitbit/sync";
-import { prisma } from "@/src/server/db/prisma";
+import { requireRole } from "@/server/auth/rbac";
+import { syncFitbitForPatient } from "@/server/integrations/fitbit/sync";
 
 export async function POST(req: NextRequest) {
   const auth = await requireRole("ADMIN", "CLINICIAN", "SERVICE");

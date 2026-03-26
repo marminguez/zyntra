@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/src/server/auth/rbac";
-import { syncFreestyleForPatient } from "@/src/server/integrations/freestyle/sync";
+import { requireRole } from "@/server/auth/rbac";
+import { syncFreestyleForPatient } from "@/server/integrations/freestyle/sync";
 
 export async function POST(req: NextRequest) {
   const auth = await requireRole("ADMIN", "CLINICIAN", "SERVICE");

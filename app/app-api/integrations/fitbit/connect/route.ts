@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/src/server/auth/rbac";
-import { generatePKCE, buildAuthUrl } from "@/src/server/integrations/fitbit/oauth";
+import { requireRole } from "@/server/auth/rbac";
+import { generatePKCE, buildAuthUrl } from "@/server/integrations/fitbit/oauth";
 import crypto from "crypto";
 
 export async function GET(req: NextRequest) {
