@@ -3,10 +3,11 @@ import { requireRole } from "@/server/auth/rbac";
 import { checkRateLimit } from "@/server/security/rateLimit";
 import { RiskRequestSchema } from "@/server/zyntra/schemas";
 import { prisma } from "@/server/db/prisma";
-import { decryptValue } from "@/server/security/crypto";
+import { decryptNumber } from "@/server/security/crypto";
 import { computeRisk, computeRiskML, VALID_HORIZONS, HorizonHrs, ZScores } from "@/server/zyntra/engine";
 import { writeAudit } from "@/server/security/audit";
 import { loadModels, computePCI, predictTarget } from "@/server/zyntra/inference";
+import { resolvePatientIdForUser } from "@/server/auth/patientAccess";
 
 /** Map signal type → z-score domain key. */
 const SIGNAL_TO_DOMAIN: Record<string, keyof ZScores> = {
@@ -52,7 +53,11 @@ export async function POST(req: NextRequest) {
         );
     }
 
-    const { patientId } = parsed.data;
+    const patientId = await resolvePatientIdForUser(
+        auth.role,
+        auth.userId,
+        parsed.data.patientId
+    );
 
     try {
         // ── Load baselines (windowDays=14) ─────────────────────
@@ -75,7 +80,7 @@ export async function POST(req: NextRequest) {
             if (latestByType.has(sig.type)) continue; // already have latest
             let val: number | null = sig.value;
             if (val === null && sig.encryptedValue) {
-                val = await decryptValue(sig.encryptedValue);
+                val = await decryptNumber(sig.encryptedValue);
             }
             if (val !== null) {
                 latestByType.set(sig.type, val);

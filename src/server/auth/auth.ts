@@ -34,7 +34,17 @@ export const authOptions: NextAuthOptions = {
                     });
                 }
 
-                return { id: user.id, email: user.email, name: user.name, role: user.role };
+                let patientId: string | null = null;
+                if (user.role === "PATIENT") {
+                    const patient = await prisma.patient.upsert({
+                        where: { userId: user.id },
+                        update: {},
+                        create: { userId: user.id },
+                    });
+                    patientId = patient.id;
+                }
+
+                return { id: user.id, email: user.email, name: user.name, role: user.role, patientId };
             },
         }),
     ],
@@ -43,6 +53,7 @@ export const authOptions: NextAuthOptions = {
             if (user) {
                 token.role = (user as any).role;
                 token.id = user.id;
+                token.patientId = (user as any).patientId ?? null;
             }
             return token;
         },
@@ -50,6 +61,7 @@ export const authOptions: NextAuthOptions = {
             if (session.user) {
                 (session.user as any).role = token.role;
                 (session.user as any).id = token.id;
+                (session.user as any).patientId = token.patientId ?? null;
             }
             return session;
         },

@@ -3,8 +3,6 @@ import { requireRole } from "@/server/auth/rbac";
 import { exchangeCodeForTokens } from "@/server/integrations/fitbit/oauth";
 import { encryptValue } from "@/server/security/crypto";
 import { prisma } from "@/server/db/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/server/auth/auth";
 
 export async function GET(req: NextRequest) {
   const auth = await requireRole("ADMIN", "CLINICIAN", "PATIENT");
@@ -24,7 +22,6 @@ export async function GET(req: NextRequest) {
   const tokens = await exchangeCodeForTokens(code, cookieVerifier);
 
   // Find the patient for this user
-  const session = await getServerSession(authOptions);
   const user    = await prisma.user.findUnique({
     where:   { id: auth.userId },
     include: { patient: true },
@@ -42,14 +39,14 @@ export async function GET(req: NextRequest) {
     create: {
       patientId,
       provider:     "fitbit",
-      accessToken:  await encryptValue(tokens.accessToken as unknown as number),
-      refreshToken: await encryptValue(tokens.refreshToken as unknown as number),
+      accessToken:  await encryptValue(tokens.accessToken),
+      refreshToken: await encryptValue(tokens.refreshToken),
       expiresAt:    tokens.expiresAt,
       scope:        tokens.scope,
     },
     update: {
-      accessToken:  await encryptValue(tokens.accessToken as unknown as number),
-      refreshToken: await encryptValue(tokens.refreshToken as unknown as number),
+      accessToken:  await encryptValue(tokens.accessToken),
+      refreshToken: await encryptValue(tokens.refreshToken),
       expiresAt:    tokens.expiresAt,
       scope:        tokens.scope,
     },
