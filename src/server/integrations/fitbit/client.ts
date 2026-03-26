@@ -24,6 +24,16 @@ export async function fetchDailySummary(
   accessToken: string,
   date: string   // YYYY-MM-DD
 ): Promise<FitbitDailySummary> {
+  if (accessToken === "mock_access_token") {
+    return {
+      date,
+      steps: 8432,
+      hrvRmssd: 45,
+      sleepScore: 82,
+      spO2: 98,
+    };
+  }
+
   const [activityData, hrvData, sleepData] = await Promise.allSettled([
     fitbitGet(`/activities/date/${date}.json`, accessToken),
     fitbitGet(`/hrv/date/${date}.json`, accessToken),

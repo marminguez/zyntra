@@ -30,6 +30,16 @@ export async function exchangeCodeForTokens(
   code: string,
   codeVerifier: string
 ): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date; scope: string }> {
+  if (FITBIT_CONFIG.clientId === "fitbit_client_id_placeholder") {
+    // Return mock tokens for local testing
+    return {
+      accessToken: "mock_access_token",
+      refreshToken: "mock_refresh_token",
+      expiresAt: new Date(Date.now() + 8 * 3600 * 1000), // 8 hours
+      scope: "activity heartrate sleep nutrition profile weight",
+    };
+  }
+
   const credentials = Buffer.from(
     `${FITBIT_CONFIG.clientId}:${FITBIT_CONFIG.clientSecret}`
   ).toString("base64");

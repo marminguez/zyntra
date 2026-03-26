@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/src/server/auth/rbac";
-import { exchangeCodeForTokens } from "@/src/server/integrations/fitbit/oauth";
-import { encryptValue } from "@/src/server/security/crypto";
-import { prisma } from "@/src/server/db/prisma";
+import { requireRole } from "@/server/auth/rbac";
+import { exchangeCodeForTokens } from "@/server/integrations/fitbit/oauth";
+import { encryptValue } from "@/server/security/crypto";
+import { prisma } from "@/server/db/prisma";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/src/server/auth/auth";
+import { authOptions } from "@/server/auth/auth";
 
 export async function GET(req: NextRequest) {
   const auth = await requireRole("ADMIN", "CLINICIAN", "PATIENT");

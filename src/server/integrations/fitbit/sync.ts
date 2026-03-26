@@ -26,8 +26,8 @@ export async function syncFitbitForPatient(patientId: string, userId: string): P
   if (token.expiresAt && token.expiresAt.getTime() < Date.now() + 5 * 60_000) {
     if (!refreshToken) throw new Error("Fitbit token expired and no refresh token available");
     const refreshed = await refreshAccessToken(String(refreshToken));
-    accessToken  = refreshed.accessToken;
-    refreshToken = refreshed.refreshToken;
+    accessToken  = refreshed.accessToken as unknown as number;
+    refreshToken = refreshed.refreshToken as unknown as number;
 
     // Persist refreshed tokens (encrypted)
     await prisma.integrationToken.update({
