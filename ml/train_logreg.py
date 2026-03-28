@@ -13,7 +13,7 @@ from sklearn.model_selection import GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import roc_auc_score, classification_report
-from xgboost import XGBClassifier
+from sklearn.linear_model import LogisticRegression
 
 FEATURES = ["z_glucose", "z_hrv", "z_sleep_score", "z_steps", "z_adherence"]
 TARGET   = "label_24h"
@@ -34,24 +34,18 @@ X_train, X_test = X[train_idx], X[test_idx]
 y_train, y_test = y[train_idx], y[test_idx]
 
 print(f"Train: {len(X_train):,} | Test: {len(X_test):,}")
-print(f"Positive rate train: {y_train.mean():.1%} | test: {y_test.mean():.1%}")
+print(f"Positive rate train: {np.mean(y_train):.1%} | test: {np.mean(y_test):.1%}")
 
-# Scale + XGBoost
-scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum()
+# Scale + LogReg
 model = Pipeline([
     ("scaler", StandardScaler()),
-    ("clf", XGBClassifier(
-        n_estimators=300,
-        max_depth=4,
-        learning_rate=0.05,
-        scale_pos_weight=scale_pos_weight,
-        eval_metric="auc",
+    ("clf", LogisticRegression(
+        class_weight="balanced",
         random_state=42,
-        n_jobs=-1,
     )),
 ])
 
-print("Training XGBoost...")
+print("Training Logistic Regression...")
 model.fit(X_train, y_train)
 
 y_prob = model.predict_proba(X_test)[:, 1]
@@ -67,9 +61,9 @@ joblib.dump(model, "ml/model.pkl")
 # Save metadata for the API
 meta = {
     "features": FEATURES,
-    "auc": round(auc, 4),
+    "auc": float(np.round(auc, 4)),
     "threshold": 0.5,
-    "model_type": "xgboost_pipeline",
+    "model_type": "logistic_regression",
     "dataset": "synthetic_ohio_calibrated",
     "version": "1.0.0",
 }

@@ -18,7 +18,11 @@ def simulate_patient(patient_id: int) -> pd.DataFrame:
 
     # Glucose: mean ~140 mg/dL, std ~40, with circadian pattern
     circadian = 15 * np.sin(2 * np.pi * t / SAMPLES_PER_DAY - np.pi / 2)
-    glucose = 140 + circadian + np.random.normal(0, 30, n)
+    noise = np.random.normal(0, 1, n)
+    smoothed_series = pd.Series(noise).ewm(alpha=0.04).mean()
+    noise_smoothed = np.asarray(smoothed_series)
+    noise_scaled = (noise_smoothed - np.mean(noise_smoothed)) / float(np.std(noise_smoothed)) * 25
+    glucose = 140 + circadian + noise_scaled
     glucose = np.clip(glucose, 40, 400)
 
     # HRV rmssd: mean ~35ms nocturnal, std ~12

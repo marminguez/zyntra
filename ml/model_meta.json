@@ -6,9 +6,9 @@
     "z_steps",
     "z_adherence"
   ],
-  "auc": 0.4174,
+  "auc": 0.5287,
   "threshold": 0.5,
-  "model_type": "xgboost_pipeline",
+  "model_type": "logistic_regression",
   "dataset": "synthetic_ohio_calibrated",
   "version": "1.0.0"
 }
