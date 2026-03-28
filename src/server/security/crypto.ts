@@ -22,7 +22,7 @@ export function isSensitiveType(type: string): boolean {
     return SENSITIVE_TYPES.has(type);
 }
 
-export async function encryptValue(value: number): Promise<string> {
+export async function encryptValue(value: string | number): Promise<string> {
     const key = getKey();
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
@@ -35,7 +35,7 @@ export async function encryptValue(value: number): Promise<string> {
     return combined.toString("base64");
 }
 
-export async function decryptValue(encoded: string): Promise<number> {
+export async function decryptValue(encoded: string): Promise<string> {
     const key = getKey();
     const combined = Buffer.from(encoded, "base64");
     
@@ -49,5 +49,14 @@ export async function decryptValue(encoded: string): Promise<number> {
     let decrypted = decipher.update(encrypted);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
     
-    return Number(decrypted.toString("utf8"));
+    return decrypted.toString("utf8");
+}
+
+export async function decryptNumber(encoded: string): Promise<number> {
+    const value = await decryptValue(encoded);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        throw new Error("Decrypted value is not a valid number");
+    }
+    return parsed;
 }

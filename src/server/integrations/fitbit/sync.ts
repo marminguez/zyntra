@@ -19,22 +19,22 @@ export async function syncFitbitForPatient(patientId: string, userId: string): P
   if (!token) throw new Error(`No Fitbit token for patient ${patientId}`);
 
   // Decrypt tokens
-  let accessToken  = await decryptValue(token.accessToken);
+  let accessToken = await decryptValue(token.accessToken);
   let refreshToken = token.refreshToken ? await decryptValue(token.refreshToken) : null;
 
   // Refresh if expired (or within 5 min of expiry)
   if (token.expiresAt && token.expiresAt.getTime() < Date.now() + 5 * 60_000) {
     if (!refreshToken) throw new Error("Fitbit token expired and no refresh token available");
-    const refreshed = await refreshAccessToken(String(refreshToken));
-    accessToken  = refreshed.accessToken as unknown as number;
-    refreshToken = refreshed.refreshToken as unknown as number;
+    const refreshed = await refreshAccessToken(refreshToken);
+    accessToken = refreshed.accessToken;
+    refreshToken = refreshed.refreshToken;
 
     // Persist refreshed tokens (encrypted)
     await prisma.integrationToken.update({
       where: { patientId_provider: { patientId, provider: "fitbit" } },
       data: {
-        accessToken:  await encryptValue(refreshed.accessToken as unknown as number),
-        refreshToken: await encryptValue(refreshed.refreshToken as unknown as number),
+        accessToken: await encryptValue(refreshed.accessToken),
+        refreshToken: await encryptValue(refreshed.refreshToken),
         expiresAt:    refreshed.expiresAt,
       },
     });
@@ -45,7 +45,7 @@ export async function syncFitbitForPatient(patientId: string, userId: string): P
   yesterday.setDate(yesterday.getDate() - 1);
   const dateStr = yesterday.toISOString().split("T")[0];
 
-  const summary = await fetchDailySummary(String(accessToken), dateStr);
+  const summary = await fetchDailySummary(accessToken, dateStr);
   const ts = `${dateStr}T23:59:00.000Z`;
 
   const synced: string[] = [];

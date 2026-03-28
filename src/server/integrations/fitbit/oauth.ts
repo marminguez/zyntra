@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { FITBIT_CONFIG } from "./config";
+import { FITBIT_CONFIG, hasFitbitCredentials } from "./config";
 
 /** Generates PKCE code_verifier + code_challenge */
 export function generatePKCE(): { verifier: string; challenge: string } {
@@ -13,6 +13,10 @@ export function generatePKCE(): { verifier: string; challenge: string } {
 
 /** Builds the Fitbit OAuth2 authorisation URL */
 export function buildAuthUrl(state: string, codeChallenge: string): string {
+  if (!hasFitbitCredentials()) {
+    throw new Error("Fitbit OAuth is not configured (missing FITBIT_CLIENT_ID/SECRET/REDIRECT_URI)");
+  }
+
   const params = new URLSearchParams({
     client_id:             FITBIT_CONFIG.clientId,
     response_type:         "code",
@@ -30,7 +34,7 @@ export async function exchangeCodeForTokens(
   code: string,
   codeVerifier: string
 ): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date; scope: string }> {
-  if (FITBIT_CONFIG.clientId === "fitbit_client_id_placeholder") {
+  if (!hasFitbitCredentials() || FITBIT_CONFIG.clientId === "fitbit_client_id_placeholder") {
     // Return mock tokens for local testing
     return {
       accessToken: "mock_access_token",
@@ -79,6 +83,13 @@ export async function exchangeCodeForTokens(
 export async function refreshAccessToken(
   refreshToken: string
 ): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date }> {
+  if (!hasFitbitCredentials()) {
+    return {
+      accessToken: "mock_access_token",
+      refreshToken: "mock_refresh_token",
+      expiresAt: new Date(Date.now() + 8 * 3600 * 1000),
+    };
+  }
   const credentials = Buffer.from(
     `${FITBIT_CONFIG.clientId}:${FITBIT_CONFIG.clientSecret}`
   ).toString("base64");
