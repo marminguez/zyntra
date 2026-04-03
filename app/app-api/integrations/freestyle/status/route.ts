@@ -2,20 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/server/auth/rbac";
 import { resolvePatientIdForUser } from "@/server/auth/patientAccess";
 import { prisma } from "@/server/db/prisma";
-
-function parseScope(scope: string | null): { lastSyncAt: string | null; lastSyncedReadings: number | null } {
-  if (!scope) return { lastSyncAt: null, lastSyncedReadings: null };
-
-  try {
-    const parsed = JSON.parse(scope) as { lastSyncAt?: string; lastSyncedReadings?: number };
-    return {
-      lastSyncAt: parsed.lastSyncAt ?? null,
-      lastSyncedReadings: typeof parsed.lastSyncedReadings === "number" ? parsed.lastSyncedReadings : null,
-    };
-  } catch {
-    return { lastSyncAt: null, lastSyncedReadings: null };
-  }
-}
+import { DIAGNOSTIC_MESSAGES, type LibreDiagnosticCode } from "@/server/integrations/freestyle/onboarding";
 
 export async function GET(req: NextRequest) {
   const auth = await requireRole("ADMIN", "CLINICIAN", "PATIENT");
@@ -24,17 +11,39 @@ export async function GET(req: NextRequest) {
   const requestedPatientId = req.nextUrl.searchParams.get("patientId") ?? undefined;
   const patientId = await resolvePatientIdForUser(auth.role, auth.userId, requestedPatientId);
 
-  const integration = await prisma.integrationToken.findUnique({
-    where: { patientId_provider: { patientId, provider: "freestyle" } },
-    select: { updatedAt: true, scope: true },
-  });
+  const connection = await prisma.libreConnection.findUnique({ where: { patientId } });
 
-  const scope = parseScope(integration?.scope ?? null);
+  if (!connection) {
+    return NextResponse.json({ status: "NOT_STARTED", connection: null });
+  }
 
   return NextResponse.json({
-    connected: Boolean(integration),
-    updatedAt: integration?.updatedAt?.toISOString() ?? null,
-    lastSyncAt: scope.lastSyncAt,
-    lastSyncedReadings: scope.lastSyncedReadings,
+    status: connection.status,
+    connection: {
+      id: connection.id,
+      userId: connection.userId,
+      invitedEmail: connection.invitedEmail,
+      acceptedEmail: connection.acceptedEmail,
+      status: connection.status,
+      inviteSentAt: connection.inviteSentAt?.toISOString() ?? null,
+      acceptedAt: connection.acceptedAt?.toISOString() ?? null,
+      firstDataAt: connection.firstDataAt?.toISOString() ?? null,
+      lastDataAt: connection.lastDataAt?.toISOString() ?? null,
+      lastCheckAt: connection.lastCheckAt?.toISOString() ?? null,
+      errorCode: connection.errorCode,
+      errorMessage:
+        connection.errorCode && connection.errorCode in DIAGNOSTIC_MESSAGES
+          ? DIAGNOSTIC_MESSAGES[connection.errorCode as LibreDiagnosticCode]
+          : connection.errorMessage,
+      diagnostics: connection.diagnostics ? safeParseJson(connection.diagnostics) : {},
+    },
   });
+}
+
+function safeParseJson(value: string): Record<string, unknown> {
+  try {
+    return JSON.parse(value) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }
