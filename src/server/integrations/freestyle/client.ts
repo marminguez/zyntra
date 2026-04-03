@@ -1,12 +1,10 @@
 import { LibreLinkUpClient } from "@diakem/libre-link-up-api-client";
 
 export interface LibreReading {
-  value: number; // mg/dL
+  value: number;
   timestamp: Date;
-  trend: string; // "Flat" | "FortyFiveUp" | etc.
+  trend: string;
 }
-
-const CLIENT_VERSIONS = ["4.12.0", "4.9.0", "4.7.0"] as const;
 
 export class LibreSyncError extends Error {
   status?: number;
