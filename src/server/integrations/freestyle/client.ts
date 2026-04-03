@@ -1,5 +1,11 @@
 import { LibreLinkUpClient } from "@diakem/libre-link-up-api-client";
 
+const CLIENT_VERSIONS = [
+  "4.7.0",
+  "4.8.0",
+  "4.9.0",
+];
+
 export interface LibreReading {
   value: number;
   timestamp: Date;
@@ -33,6 +39,13 @@ function normalizeLibreError(err: unknown): LibreSyncError {
 
   if (status === 429) {
     return new LibreSyncError("LibreLink rate-limited requests (429). Please retry in a few minutes.", status);
+  }
+
+  if (status === 430) {
+    return new LibreSyncError(
+      "LibreLink rejected the session request (430). Retry in a minute; if it persists, reconnect your LibreLinkUp account.",
+      status
+    );
   }
 
   const message = err instanceof Error ? err.message : "Could not fetch LibreLink data";
@@ -79,7 +92,7 @@ export async function fetchLatestReadings(email: string, password: string): Prom
       lastError = err;
       const status = extractStatus(err);
 
-      if (status === 401 || status === 403 || status === 404 || status === 502 || status === 503) {
+      if (status === 401 || status === 403 || status === 404 || status === 430 || status === 502 || status === 503) {
         continue;
       }
 
