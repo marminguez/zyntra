@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     if (err instanceof LibreSyncError) {
-      const status = err.status === 401 || err.status === 403 ? 400 : 502;
+      const status = err.status === 401 || err.status === 403 || err.status === 430 ? 400 : 502;
       return NextResponse.json({ error: err.message }, { status });
     }
     const message = err instanceof Error ? err.message : "Failed to verify FreeStyle connection";
