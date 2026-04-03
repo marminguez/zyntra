@@ -48,6 +48,23 @@ function normalizeLibreError(err: unknown): LibreSyncError {
 }
 
 function parseReadings(response: unknown): LibreReading[] {
+  const mapped = response as {
+    history?: Array<{ value?: number; date?: Date | string; trend?: string }>;
+    current?: { value?: number; date?: Date | string; trend?: string };
+  };
+
+  if (Array.isArray(mapped.history)) {
+    return mapped.history
+      .map((entry) => ({
+        value: entry.value ?? 0,
+        timestamp: new Date(entry.date ?? Date.now()),
+        trend: entry.trend ?? "Unknown",
+      }))
+      .filter((r) => Number.isFinite(r.value) && r.value > 0)
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }
+
+  // Backward compatibility with older/raw response shapes.
   const payload = response as { data?: unknown };
   if (!payload?.data) return [];
 
@@ -63,7 +80,7 @@ function parseReadings(response: unknown): LibreReading[] {
         trend: trendLabel(reading.TrendArrow ?? 0),
       };
     })
-    .filter((r) => r.value > 0)
+    .filter((r) => Number.isFinite(r.value) && r.value > 0)
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 }
 
