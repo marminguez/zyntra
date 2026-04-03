@@ -18,6 +18,17 @@ import { speakText } from "../_lib/voiceAssistant";
 
 const ZYNTRA_ALERT_THRESHOLD = 70;
 const ZYNTRA_PREVENTIVE_THRESHOLD = 60;
+const LIBRE_REQUIRED_INVITE_EMAIL = "marminguez@yahoo.es";
+type LibreWizardStatus =
+    | "NOT_STARTED"
+    | "INVITE_SENT"
+    | "WAITING_FOR_LIBRELINKUP_ACCEPTANCE"
+    | "SHARE_ACCEPTED_NO_DATA_YET"
+    | "WAITING_FOR_DATA"
+    | "SYNC_ACTIVE"
+    | "SYNC_ERROR"
+    | "EMAIL_MISMATCH"
+    | "NETWORK_OR_UPLOAD_DELAY";
 
 export function PatientDashboard() {
     const { data: session } = useSession();
@@ -45,10 +56,15 @@ export function PatientDashboard() {
     const [isSyncingFitbit, setIsSyncingFitbit] = useState(false);
     const [isSyncingLibre, setIsSyncingLibre] = useState(false);
     const [isConnectingLibre, setIsConnectingLibre] = useState(false);
-    const [libreEmail, setLibreEmail] = useState("");
-    const [librePassword, setLibrePassword] = useState("");
-    const [libreConnected, setLibreConnected] = useState(false);
+    const [isAcceptingLibre, setIsAcceptingLibre] = useState(false);
+    const [isResettingLibre, setIsResettingLibre] = useState(false);
+    const [libreEmail, setLibreEmail] = useState(LIBRE_REQUIRED_INVITE_EMAIL);
+    const [libreAcceptedEmail, setLibreAcceptedEmail] = useState("");
+    const [libreStatus, setLibreStatus] = useState<LibreWizardStatus>("NOT_STARTED");
     const [libreLastSyncAt, setLibreLastSyncAt] = useState<string | null>(null);
+    const [libreAcceptedAt, setLibreAcceptedAt] = useState<string | null>(null);
+    const [libreLastDataAt, setLibreLastDataAt] = useState<string | null>(null);
+    const [libreErrorMessage, setLibreErrorMessage] = useState<string | null>(null);
 
     useEffect(() => {
         if (searchParams?.get("fitbit") === "connected") {
@@ -70,8 +86,15 @@ export function PatientDashboard() {
                 });
                 if (!res.ok) return;
                 const data = await res.json();
-                setLibreConnected(Boolean(data.connected));
-                setLibreLastSyncAt(typeof data.lastSyncAt === "string" ? data.lastSyncAt : null);
+                setLibreStatus((data.status as LibreWizardStatus) ?? "NOT_STARTED");
+                setLibreLastSyncAt(typeof data?.connection?.lastCheckAt === "string" ? data.connection.lastCheckAt : null);
+                setLibreAcceptedAt(typeof data?.connection?.acceptedAt === "string" ? data.connection.acceptedAt : null);
+                setLibreLastDataAt(typeof data?.connection?.lastDataAt === "string" ? data.connection.lastDataAt : null);
+                setLibreErrorMessage(typeof data?.connection?.errorMessage === "string" ? data.connection.errorMessage : null);
+                if (typeof data?.connection?.invitedEmail === "string") {
+                    setLibreEmail(data.connection.invitedEmail.trim().toLowerCase() || LIBRE_REQUIRED_INVITE_EMAIL);
+                }
+                if (typeof data?.connection?.acceptedEmail === "string") setLibreAcceptedEmail(data.connection.acceptedEmail);
             } catch (err) {
                 console.error("Failed to load LibreLink status", err);
             }
@@ -238,27 +261,39 @@ export function PatientDashboard() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ patientId }),
+                body: JSON.stringify({
+                    patientId,
+                    isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+                    region: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                }),
             });
             const data = await res.json();
             if (res.ok) {
-                setLibreConnected(true);
-                setLibreLastSyncAt(new Date().toISOString());
-                setSyncMessage({ type: "success", text: "FreeStyle CGM data synced successfully" });
+                setLibreStatus((data.status as LibreWizardStatus) ?? "NOT_STARTED");
+                setLibreLastSyncAt(typeof data.lastCheckAt === "string" ? data.lastCheckAt : new Date().toISOString());
+                setLibreLastDataAt(typeof data.lastDataAt === "string" ? data.lastDataAt : null);
+                setLibreAcceptedAt(typeof data.acceptedAt === "string" ? data.acceptedAt : libreAcceptedAt);
+                if (data.errorMessage) {
+                    setSyncMessage({ type: "error", text: data.errorMessage });
+                } else {
+                    setSyncMessage({ type: "success", text: "Libre connection verified and data is available." });
+                }
                 await fetchZyntraStatus();
             } else {
-                setSyncMessage({ type: "error", text: `Sync failed: ${data.error || "Unknown error"}` });
+                setLibreStatus("SYNC_ERROR");
+                setSyncMessage({ type: "error", text: `Connection check failed: ${data.error || "Unknown error"}` });
             }
         } catch (err) {
-            setSyncMessage({ type: "error", text: "Sync failed: Network error" });
+            setLibreStatus("NETWORK_OR_UPLOAD_DELAY");
+            setSyncMessage({ type: "error", text: "Connection check could not finish due to network delay." });
         } finally {
             setIsSyncingLibre(false);
         }
     }
 
     async function handleConnectLibre() {
-        if (!libreEmail.trim() || !librePassword.trim()) {
-            setSyncMessage({ type: "error", text: "Please add your LibreLink email and password first." });
+        if (libreEmail.trim().toLowerCase() !== LIBRE_REQUIRED_INVITE_EMAIL) {
+            setSyncMessage({ type: "error", text: `The invited email must be exactly ${LIBRE_REQUIRED_INVITE_EMAIL}.` });
             return;
         }
 
@@ -269,13 +304,12 @@ export function PatientDashboard() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ patientId, email: libreEmail.trim(), password: librePassword }),
+                body: JSON.stringify({ patientId, invitedEmail: libreEmail.trim(), region: Intl.DateTimeFormat().resolvedOptions().timeZone }),
             });
             const data = await res.json();
             if (res.ok) {
-                setLibreConnected(true);
-                setLibrePassword("");
-                setSyncMessage({ type: "success", text: "LibreLink account connected. You can sync real data now." });
+                setLibreStatus((data.status as LibreWizardStatus) ?? "INVITE_SENT");
+                setSyncMessage({ type: "success", text: "Invitation registered. Accept it in LibreLinkUp with the same email." });
             } else {
                 setSyncMessage({ type: "error", text: `Connection failed: ${data.error || "Unknown error"}` });
             }
@@ -283,6 +317,55 @@ export function PatientDashboard() {
             setSyncMessage({ type: "error", text: "Connection failed: Network error" });
         } finally {
             setIsConnectingLibre(false);
+        }
+    }
+
+    async function handleConfirmLibreAcceptance() {
+        if (!libreAcceptedEmail.trim()) {
+            setSyncMessage({ type: "error", text: "Enter the email used to accept inside LibreLinkUp." });
+            return;
+        }
+        setIsAcceptingLibre(true);
+        setSyncMessage(null);
+        try {
+            const res = await fetch("/app-api/integrations/freestyle/accept", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ patientId, acceptedEmail: libreAcceptedEmail.trim() }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setLibreStatus((data.status as LibreWizardStatus) ?? "SHARE_ACCEPTED_NO_DATA_YET");
+                setLibreAcceptedAt(typeof data.acceptedAt === "string" ? data.acceptedAt : new Date().toISOString());
+                setSyncMessage({ type: "success", text: "Acceptance captured. Now keep Libre phone online and run Check connection." });
+            } else {
+                setSyncMessage({ type: "error", text: data.error || "Could not confirm invitation acceptance." });
+            }
+        } finally {
+            setIsAcceptingLibre(false);
+        }
+    }
+
+    async function handleResetLibre() {
+        setIsResettingLibre(true);
+        try {
+            await fetch("/app-api/integrations/freestyle/reset", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ patientId }),
+            });
+            setLibreStatus("NOT_STARTED");
+            setLibreEmail("");
+            setLibreAcceptedEmail("");
+            setLibreAcceptedAt(null);
+            setLibreLastDataAt(null);
+            setLibreLastSyncAt(null);
+            setLibreErrorMessage(null);
+            setSyncMessage({ type: "success", text: "Libre onboarding reset. Start again from Step 1." });
+        } finally {
+            setIsResettingLibre(false);
         }
     }
 
@@ -429,40 +512,58 @@ export function PatientDashboard() {
                                             <p className="text-sm text-slate-500">Continuous Glucose</p>
                                         </div>
                                     </div>
-                                    <span className={`px-3 py-1 text-xs font-bold rounded-full border ${libreConnected ? "bg-green-50 text-green-700 border-green-100" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
-                                        {libreConnected ? "Connected" : "Not connected"}
+                    <span className={`px-3 py-1 text-xs font-bold rounded-full border ${libreStatus === "SYNC_ACTIVE" ? "bg-green-50 text-green-700 border-green-100" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                                        {libreStatus === "SYNC_ACTIVE" ? "Sync active" : libreStatus.replaceAll("_", " ")}
                                     </span>
                                 </div>
                                 {libreLastSyncAt && (
                                     <p className="text-xs text-slate-500 -mt-2">
-                                        Last sync: {new Date(libreLastSyncAt).toLocaleString()}
+                                        Last check: {new Date(libreLastSyncAt).toLocaleString()}
                                     </p>
                                 )}
+                                {libreAcceptedAt && <p className="text-xs text-slate-500 -mt-2">Invitation accepted at: {new Date(libreAcceptedAt).toLocaleString()}</p>}
+                                {libreLastDataAt && <p className="text-xs text-slate-500 -mt-2">Last glucose timestamp: {new Date(libreLastDataAt).toLocaleString()}</p>}
+                                {libreErrorMessage && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">{libreErrorMessage}</p>}
+                                <ol className="text-sm text-slate-600 list-decimal pl-5 space-y-1">
+                                    <li>Open Libre app &gt; Connected Apps / Share &gt; LibreLinkUp.</li>
+                                    <li>Invite this exact email: <span className="font-semibold">{LIBRE_REQUIRED_INVITE_EMAIL}</span></li>
+                                    <li>Open LibreLinkUp and accept the invitation with the same email.</li>
+                                    <li>Keep your Libre phone online so data can upload.</li>
+                                    <li>Return to Zyntra and tap Check connection.</li>
+                                </ol>
                                 <div className="grid grid-cols-1 gap-3">
                                     <input
                                         type="email"
                                         value={libreEmail}
                                         onChange={(e) => setLibreEmail(e.target.value)}
-                                        placeholder="LibreLink email"
+                                        placeholder="Step 2: invited email"
                                         className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                                     />
                                     <input
-                                        type="password"
-                                        value={librePassword}
-                                        onChange={(e) => setLibrePassword(e.target.value)}
-                                        placeholder="LibreLink password"
+                                        type="email"
+                                        value={libreAcceptedEmail}
+                                        onChange={(e) => setLibreAcceptedEmail(e.target.value)}
+                                        placeholder="Step 3: accepted email in LibreLinkUp"
                                         className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                                     />
                                 </div>
                                 <p className="text-xs text-slate-500">
-                                    Use LibreLinkUp credentials and make sure glucose sharing is enabled.
+                                    Zyntra only verifies authorized shared data. No Abbott credentials are requested or stored.
                                 </p>
                                 <div className="flex gap-3 mt-2">
                                     <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">
-                                        {isConnectingLibre ? "Connecting..." : "Connect LibreLink"}
+                                        {isConnectingLibre ? "Saving..." : "Save invite email"}
                                     </button>
-                                    <button onClick={handleSyncLibre} disabled={isSyncingLibre || !libreConnected} className="flex-1 bg-zyntra-teal text-zyntra-navy text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-teal-300 disabled:opacity-50">
-                                        {isSyncingLibre ? "Syncing..." : "Sync real data"}
+                                    <button onClick={handleConfirmLibreAcceptance} disabled={isAcceptingLibre} className="flex-1 border border-slate-200 text-slate-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-slate-50 disabled:opacity-50">
+                                        {isAcceptingLibre ? "Confirming..." : "I accepted invitation"}
+                                    </button>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button onClick={handleSyncLibre} disabled={isSyncingLibre} className="flex-1 bg-zyntra-teal text-zyntra-navy text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-teal-300 disabled:opacity-50">
+                                        {isSyncingLibre ? "Checking..." : "Check connection"}
+                                    </button>
+                                    <button onClick={handleResetLibre} disabled={isResettingLibre} className="flex-1 border border-rose-200 text-rose-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-rose-50 disabled:opacity-50">
+                                        {isResettingLibre ? "Resetting..." : "Start over"}
                                     </button>
                                 </div>
                             </div>
