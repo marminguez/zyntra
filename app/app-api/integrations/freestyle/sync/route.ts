@@ -29,14 +29,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!email || !password) {
-      // Mock CGM Sync for local development if credentials are missing
-      const { ingestSignal } = await import("@/server/zyntra/ingest");
-      const ts = new Date().toISOString();
-      await ingestSignal(
-        { patientId, source: "CGM", ts, type: "cgm_glucose_mgdl", value: 112, unit: "mg/dL", meta: { trend: "STABLE" } },
-        auth.userId
+      return NextResponse.json(
+        { error: "LibreLink credentials are missing. Connect LibreLink first to sync real data." },
+        { status: 400 }
       );
-      return NextResponse.json({ synced: 1, errors: [] });
     }
 
     const result = await syncFreestyleForPatient(patientId, auth.userId, email, password);

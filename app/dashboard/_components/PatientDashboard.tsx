@@ -88,23 +88,25 @@ export function PatientDashboard() {
     }, [patientId, activeTab]);
 
     // Fetch Zyntra status on dashboard mount
-    useEffect(() => {
-        const fetchZyntra = async () => {
-            setZyntraLoading(true);
-            try {
-                const res = await fetch("/api/zyntra/status");
-                if (res.ok) {
-                    const data = await res.json();
-                    setZyntraData(data);
-                }
-            } catch (err) {
-                console.error("Failed to fetch Zyntra status", err);
-            } finally {
-                setZyntraLoading(false);
+    async function fetchZyntraStatus() {
+        setZyntraLoading(true);
+        try {
+            const res = await fetch("/api/zyntra/status");
+            if (res.ok) {
+                const data = await res.json();
+                setZyntraData(data);
             }
-        };
+        } catch (err) {
+            console.error("Failed to fetch Zyntra status", err);
+        } finally {
+            setZyntraLoading(false);
+        }
+    }
 
-        if (activeTab === "DASHBOARD") fetchZyntra();
+    useEffect(() => {
+        if (activeTab === "DASHBOARD") {
+            void fetchZyntraStatus();
+        }
     }, [activeTab]);
 
     useEffect(() => {
@@ -220,6 +222,7 @@ export function PatientDashboard() {
             if (res.ok) {
                 setLibreConnected(true);
                 setSyncMessage({ type: "success", text: "FreeStyle CGM data synced successfully" });
+                await fetchZyntraStatus();
             } else {
                 setSyncMessage({ type: "error", text: `Sync failed: ${data.error || "Unknown error"}` });
             }
