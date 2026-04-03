@@ -37,6 +37,17 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await syncFreestyleForPatient(patientId, auth.userId, email, password);
+
+    await prisma.integrationToken.updateMany({
+      where: { patientId, provider: "freestyle" },
+      data: {
+        scope: JSON.stringify({
+          lastSyncAt: new Date().toISOString(),
+          lastSyncedReadings: result.synced,
+        }),
+      },
+    });
+
     return NextResponse.json(result);
   } catch (err: unknown) {
     if (err instanceof LibreSyncError) {
