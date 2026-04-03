@@ -34,6 +34,5 @@ export async function syncFreestyleForPatient(
     }
   }
 
-export async function syncFreestyleForPatient(): Promise<{ synced: number; errors: string[] }> {
-  return { synced: 0, errors: [] };
+  return { synced, errors };
 }

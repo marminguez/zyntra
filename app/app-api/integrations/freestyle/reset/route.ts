@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
   const patientId = await resolvePatientIdForUser(auth.role, auth.userId, requestedPatientId);
 
   await prisma.libreConnection.deleteMany({ where: { patientId } });
+  await prisma.integrationToken.deleteMany({ where: { patientId, provider: "freestyle" } });
 
   console.info("[libre-onboarding] reset", {
     patientId,

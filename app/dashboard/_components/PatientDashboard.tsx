@@ -18,7 +18,6 @@ import { speakText } from "../_lib/voiceAssistant";
 
 const ZYNTRA_ALERT_THRESHOLD = 70;
 const ZYNTRA_PREVENTIVE_THRESHOLD = 60;
-const LIBRE_REQUIRED_INVITE_EMAIL = "marminguez@yahoo.es";
 type LibreWizardStatus =
     | "NOT_STARTED"
     | "INVITE_SENT"
@@ -58,7 +57,8 @@ export function PatientDashboard() {
     const [isConnectingLibre, setIsConnectingLibre] = useState(false);
     const [isAcceptingLibre, setIsAcceptingLibre] = useState(false);
     const [isResettingLibre, setIsResettingLibre] = useState(false);
-    const [libreEmail, setLibreEmail] = useState(LIBRE_REQUIRED_INVITE_EMAIL);
+    const [libreEmail, setLibreEmail] = useState("");
+    const [librePassword, setLibrePassword] = useState("");
     const [libreAcceptedEmail, setLibreAcceptedEmail] = useState("");
     const [libreStatus, setLibreStatus] = useState<LibreWizardStatus>("NOT_STARTED");
     const [libreLastSyncAt, setLibreLastSyncAt] = useState<string | null>(null);
@@ -93,7 +93,7 @@ export function PatientDashboard() {
                 setLibreLastDataAt(typeof data?.connection?.lastDataAt === "string" ? data.connection.lastDataAt : null);
                 setLibreErrorMessage(typeof data?.connection?.errorMessage === "string" ? data.connection.errorMessage : null);
                 if (typeof data?.connection?.invitedEmail === "string") {
-                    setLibreEmail(data.connection.invitedEmail.trim().toLowerCase() || LIBRE_REQUIRED_INVITE_EMAIL);
+                    setLibreEmail(data.connection.invitedEmail.trim().toLowerCase() || "");
                 }
                 if (typeof data?.connection?.acceptedEmail === "string") setLibreAcceptedEmail(data.connection.acceptedEmail);
             } catch (err) {
@@ -318,8 +318,12 @@ export function PatientDashboard() {
     }
 
     async function handleConnectLibre() {
-        if (libreEmail.trim().toLowerCase() !== LIBRE_REQUIRED_INVITE_EMAIL) {
-            setSyncMessage({ type: "error", text: `The invited email must be exactly ${LIBRE_REQUIRED_INVITE_EMAIL}.` });
+        if (!libreEmail.trim()) {
+            setSyncMessage({ type: "error", text: "Enter your LibreLinkUp email." });
+            return;
+        }
+        if (!librePassword.trim()) {
+            setSyncMessage({ type: "error", text: "Enter your LibreLinkUp password." });
             return;
         }
 
@@ -330,12 +334,24 @@ export function PatientDashboard() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ patientId, invitedEmail: libreEmail.trim(), region: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+                body: JSON.stringify({
+                    patientId,
+                    invitedEmail: libreEmail.trim(),
+                    librePassword,
+                    region: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                }),
             });
             const data = await res.json();
             if (res.ok) {
-                setLibreStatus((data.status as LibreWizardStatus) ?? "INVITE_SENT");
-                setSyncMessage({ type: "success", text: "Invitation registered. Accept it in LibreLinkUp with the same email." });
+                setLibreStatus((data.status as LibreWizardStatus) ?? "WAITING_FOR_DATA");
+                setLibreAcceptedAt(typeof data.acceptedAt === "string" ? data.acceptedAt : libreAcceptedAt);
+                setSyncMessage({
+                    type: "success",
+                    text:
+                        data.mode === "DIRECT_LOGIN"
+                            ? "Libre credentials validated. Connection saved for direct sync."
+                            : "Invitation registered. Accept it in LibreLinkUp with the same email.",
+                });
             } else {
                 setSyncMessage({ type: "error", text: `Connection failed: ${data.error || "Unknown error"}` });
             }
@@ -384,6 +400,7 @@ export function PatientDashboard() {
             });
             setLibreStatus("NOT_STARTED");
             setLibreEmail("");
+            setLibrePassword("");
             setLibreAcceptedEmail("");
             setLibreAcceptedAt(null);
             setLibreLastDataAt(null);
@@ -567,11 +584,10 @@ export function PatientDashboard() {
                                 ) : (
                                     <>
                                         <ol className="text-sm text-slate-600 list-decimal pl-5 space-y-1">
-                                            <li>Open Libre app &gt; Connected Apps / Share &gt; LibreLinkUp.</li>
-                                            <li>Invite this exact email: <span className="font-semibold">{LIBRE_REQUIRED_INVITE_EMAIL}</span></li>
-                                            <li>Open LibreLinkUp and accept the invitation with the same email.</li>
-                                            <li>Keep your Libre phone online so data can upload.</li>
-                                            <li>Return to Zyntra and tap Check connection.</li>
+                                            <li>Enter your LibreLinkUp email and password below.</li>
+                                            <li>Zyntra validates those credentials against LibreLinkUp.</li>
+                                            <li>Keep your Libre app online so glucose uploads to the cloud.</li>
+                                            <li>Tap Check connection to pull new glucose readings.</li>
                                         </ol>
                                         <div className="grid grid-cols-1 gap-3">
                                             <input
@@ -579,6 +595,13 @@ export function PatientDashboard() {
                                                 value={libreEmail}
                                                 onChange={(e) => setLibreEmail(e.target.value)}
                                                 placeholder="Step 2: invited email"
+                                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                            />
+                                            <input
+                                                type="password"
+                                                value={librePassword}
+                                                onChange={(e) => setLibrePassword(e.target.value)}
+                                                placeholder="Step 2: LibreLinkUp password"
                                                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                                             />
                                             <input
@@ -590,11 +613,11 @@ export function PatientDashboard() {
                                             />
                                         </div>
                                         <p className="text-xs text-slate-500">
-                                            You can continue with follower sharing, or login to Zyntra with Libre credentials to enable direct sync checks.
+                                            These credentials must match the LibreLinkUp app account used by the patient.
                                         </p>
                                         <div className="flex gap-3 mt-2">
                                             <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">
-                                                {isConnectingLibre ? "Saving..." : "Save invite email"}
+                                                {isConnectingLibre ? "Saving..." : "Save Libre credentials"}
                                             </button>
                                             <button onClick={handleConfirmLibreAcceptance} disabled={isAcceptingLibre} className="flex-1 border border-slate-200 text-slate-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-slate-50 disabled:opacity-50">
                                                 {isAcceptingLibre ? "Confirming..." : "I accepted invitation"}
