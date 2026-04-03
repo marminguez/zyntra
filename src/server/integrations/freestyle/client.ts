@@ -44,6 +44,14 @@ function normalizeLibreError(err: unknown): LibreSyncError {
   }
 
   const message = err instanceof Error ? err.message : "No fue posible obtener datos desde LibreLink";
+
+  if (message.toLowerCase().includes("reading 'token'") || message.toLowerCase().includes("reading \"token\"")) {
+    return new LibreSyncError(
+      "LibreLink no devolvió una sesión válida. Vuelve a conectar tu cuenta y confirma que tengas datos compartidos en LibreLinkUp.",
+      status
+    );
+  }
+
   return new LibreSyncError(message, status);
 }
 

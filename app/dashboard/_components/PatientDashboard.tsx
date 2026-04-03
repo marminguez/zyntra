@@ -455,7 +455,7 @@ export function PatientDashboard() {
                                     />
                                 </div>
                                 <p className="text-xs text-slate-500">
-                                    Use LibreLinkUp credentials and make sure glucose sharing is enabled (same flow used by Social Diabetes).
+                                    Use LibreLinkUp credentials and make sure glucose sharing is enabled.
                                 </p>
                                 <div className="flex gap-3 mt-2">
                                     <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">

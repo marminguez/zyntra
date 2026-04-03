@@ -20,9 +20,6 @@ export async function POST(req: NextRequest) {
     const normalizedEmail = String(email).trim();
     const normalizedPassword = String(password);
 
-    // Validate credentials immediately (Social Diabetes-like flow) before persisting.
-    await fetchLatestReadings(normalizedEmail, normalizedPassword);
-
     await prisma.integrationToken.upsert({
       where: { patientId_provider: { patientId, provider: "freestyle" } },
       create: {
