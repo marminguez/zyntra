@@ -65,6 +65,7 @@ export function PatientDashboard() {
     const [libreAcceptedAt, setLibreAcceptedAt] = useState<string | null>(null);
     const [libreLastDataAt, setLibreLastDataAt] = useState<string | null>(null);
     const [libreErrorMessage, setLibreErrorMessage] = useState<string | null>(null);
+    const [showLibreAdvanced, setShowLibreAdvanced] = useState(false);
 
     useEffect(() => {
         if (searchParams?.get("fitbit") === "connected") {
@@ -104,6 +105,31 @@ export function PatientDashboard() {
             void fetchLibreStatus();
         }
     }, [activeTab, patientId]);
+
+    useEffect(() => {
+        const shouldAutoCheck =
+            activeTab === "DEVICES" &&
+            (libreStatus === "WAITING_FOR_DATA" ||
+                libreStatus === "SHARE_ACCEPTED_NO_DATA_YET" ||
+                libreStatus === "NETWORK_OR_UPLOAD_DELAY");
+
+        if (!shouldAutoCheck || !patientId) return;
+
+        const interval = setInterval(() => {
+            void fetch("/app-api/integrations/freestyle/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    patientId,
+                    isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+                    region: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                }),
+            });
+        }, 60000);
+
+        return () => clearInterval(interval);
+    }, [activeTab, libreStatus, patientId]);
 
     useEffect(() => {
         const fetchMyRisk = async () => {
@@ -363,6 +389,7 @@ export function PatientDashboard() {
             setLibreLastDataAt(null);
             setLibreLastSyncAt(null);
             setLibreErrorMessage(null);
+            setShowLibreAdvanced(false);
             setSyncMessage({ type: "success", text: "Libre onboarding reset. Start again from Step 1." });
         } finally {
             setIsResettingLibre(false);
@@ -524,40 +551,57 @@ export function PatientDashboard() {
                                 {libreAcceptedAt && <p className="text-xs text-slate-500 -mt-2">Invitation accepted at: {new Date(libreAcceptedAt).toLocaleString()}</p>}
                                 {libreLastDataAt && <p className="text-xs text-slate-500 -mt-2">Last glucose timestamp: {new Date(libreLastDataAt).toLocaleString()}</p>}
                                 {libreErrorMessage && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">{libreErrorMessage}</p>}
-                                <ol className="text-sm text-slate-600 list-decimal pl-5 space-y-1">
-                                    <li>Open Libre app &gt; Connected Apps / Share &gt; LibreLinkUp.</li>
-                                    <li>Invite this exact email: <span className="font-semibold">{LIBRE_REQUIRED_INVITE_EMAIL}</span></li>
-                                    <li>Open LibreLinkUp and accept the invitation with the same email.</li>
-                                    <li>Keep your Libre phone online so data can upload.</li>
-                                    <li>Return to Zyntra and tap Check connection.</li>
-                                </ol>
-                                <div className="grid grid-cols-1 gap-3">
-                                    <input
-                                        type="email"
-                                        value={libreEmail}
-                                        onChange={(e) => setLibreEmail(e.target.value)}
-                                        placeholder="Step 2: invited email"
-                                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
-                                    />
-                                    <input
-                                        type="email"
-                                        value={libreAcceptedEmail}
-                                        onChange={(e) => setLibreAcceptedEmail(e.target.value)}
-                                        placeholder="Step 3: accepted email in LibreLinkUp"
-                                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
-                                    />
-                                </div>
-                                <p className="text-xs text-slate-500">
-                                    Zyntra only verifies authorized shared data. No Abbott credentials are requested or stored.
-                                </p>
-                                <div className="flex gap-3 mt-2">
-                                    <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">
-                                        {isConnectingLibre ? "Saving..." : "Save invite email"}
-                                    </button>
-                                    <button onClick={handleConfirmLibreAcceptance} disabled={isAcceptingLibre} className="flex-1 border border-slate-200 text-slate-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-slate-50 disabled:opacity-50">
-                                        {isAcceptingLibre ? "Confirming..." : "I accepted invitation"}
-                                    </button>
-                                </div>
+                                {(libreStatus === "SHARE_ACCEPTED_NO_DATA_YET" || libreStatus === "WAITING_FOR_DATA" || libreStatus === "SYNC_ACTIVE") && !showLibreAdvanced ? (
+                                    <div className="rounded-xl border border-teal-100 bg-teal-50 p-3 text-sm text-teal-900">
+                                        <p className="font-semibold">Follower share already linked.</p>
+                                        <p className="mt-1 text-teal-800">
+                                            Zyntra will auto-check every minute and activate sync when cloud glucose is available.
+                                        </p>
+                                        <button
+                                            onClick={() => setShowLibreAdvanced(true)}
+                                            className="mt-3 text-xs font-semibold text-teal-700 underline"
+                                        >
+                                            Edit invitation/acceptance details
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <ol className="text-sm text-slate-600 list-decimal pl-5 space-y-1">
+                                            <li>Open Libre app &gt; Connected Apps / Share &gt; LibreLinkUp.</li>
+                                            <li>Invite this exact email: <span className="font-semibold">{LIBRE_REQUIRED_INVITE_EMAIL}</span></li>
+                                            <li>Open LibreLinkUp and accept the invitation with the same email.</li>
+                                            <li>Keep your Libre phone online so data can upload.</li>
+                                            <li>Return to Zyntra and tap Check connection.</li>
+                                        </ol>
+                                        <div className="grid grid-cols-1 gap-3">
+                                            <input
+                                                type="email"
+                                                value={libreEmail}
+                                                onChange={(e) => setLibreEmail(e.target.value)}
+                                                placeholder="Step 2: invited email"
+                                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                            />
+                                            <input
+                                                type="email"
+                                                value={libreAcceptedEmail}
+                                                onChange={(e) => setLibreAcceptedEmail(e.target.value)}
+                                                placeholder="Step 3: accepted email in LibreLinkUp"
+                                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                            />
+                                        </div>
+                                        <p className="text-xs text-slate-500">
+                                            You can continue with follower sharing, or login to Zyntra with Libre credentials to enable direct sync checks.
+                                        </p>
+                                        <div className="flex gap-3 mt-2">
+                                            <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">
+                                                {isConnectingLibre ? "Saving..." : "Save invite email"}
+                                            </button>
+                                            <button onClick={handleConfirmLibreAcceptance} disabled={isAcceptingLibre} className="flex-1 border border-slate-200 text-slate-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-slate-50 disabled:opacity-50">
+                                                {isAcceptingLibre ? "Confirming..." : "I accepted invitation"}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
                                 <div className="flex gap-3">
                                     <button onClick={handleSyncLibre} disabled={isSyncingLibre} className="flex-1 bg-zyntra-teal text-zyntra-navy text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-teal-300 disabled:opacity-50">
                                         {isSyncingLibre ? "Checking..." : "Check connection"}

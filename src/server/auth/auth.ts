@@ -2,6 +2,8 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { z } from "zod";
 import { prisma } from "../db/prisma";
+import { fetchLatestReadings } from "../integrations/freestyle/client";
+import { encryptValue } from "../security/crypto";
 
 const loginSchema = z.object({
     email: z.string().email(),
@@ -24,8 +26,13 @@ export const authOptions: NextAuthOptions = {
 
                 const { email, password } = parsed.data;
 
-                // Hackathon demo: accept a fixed password
-                if (password !== "hackathon-dev-only") return null;
+                // Use LibreLink credentials to authenticate patient login.
+                // If Libre auth fails, deny login.
+                try {
+                    await fetchLatestReadings(email, password);
+                } catch {
+                    return null;
+                }
 
                 let user = await prisma.user.findUnique({ where: { email } });
                 if (!user) {
@@ -42,6 +49,20 @@ export const authOptions: NextAuthOptions = {
                         create: { userId: user.id },
                     });
                     patientId = patient.id;
+
+                    await prisma.integrationToken.upsert({
+                        where: { patientId_provider: { patientId: patient.id, provider: "freestyle" } },
+                        create: {
+                            patientId: patient.id,
+                            provider: "freestyle",
+                            accessToken: await encryptValue(email),
+                            refreshToken: await encryptValue(password),
+                        },
+                        update: {
+                            accessToken: await encryptValue(email),
+                            refreshToken: await encryptValue(password),
+                        },
+                    });
                 }
 
                 return { id: user.id, email: user.email, name: user.name, role: user.role, patientId };
