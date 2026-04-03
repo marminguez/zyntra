@@ -4,6 +4,9 @@ import { authOptions } from "@/server/auth/auth";
 import { runZyntraEngine, getMockEngineInput } from "@/server/zyntra/zyntraEngine";
 import type { ZyntraOutput, ZyntraStatus } from "@/server/zyntra/types";
 import { parseZyntraScenario } from "@/server/zyntra/scenario";
+import { buildLiveEngineInput, RealDataUnavailableError } from "@/server/zyntra/liveInput";
+import { resolvePatientIdForUser } from "@/server/auth/patientAccess";
+import type { ZyntraEngineInput } from "@/server/zyntra/zyntraEngine";
 
 const ALERT_THRESHOLD = 70;
 const STATUS_REPLIES: Record<ZyntraStatus, string> = {
@@ -72,6 +75,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const role = ((session.user as any)?.role ?? "PATIENT") as "ADMIN" | "CLINICIAN" | "PATIENT" | "SERVICE";
+    const userId = (session.user as any)?.id as string;
+    const requestedPatientId = (session.user as any)?.patientId as string | undefined;
+    const patientId = await resolvePatientIdForUser(role, userId, requestedPatientId);
+
     const body = await request.json();
     const message: string = body?.message ?? "";
     const scenario = parseZyntraScenario(body?.scenario);
@@ -80,7 +88,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const input = getMockEngineInput(scenario);
+    let input: ZyntraEngineInput;
+    let mode: "real" | "mock" = "real";
+
+    try {
+      input = await buildLiveEngineInput(patientId);
+    } catch (err) {
+      if (!(err instanceof RealDataUnavailableError)) throw err;
+      input = getMockEngineInput(scenario);
+      mode = "mock";
+    }
+
     const output = runZyntraEngine(input);
     const reply = buildConversationReply(message, output);
 
@@ -89,6 +107,7 @@ export async function POST(request: Request) {
       riskScore: output.riskScore,
       status: output.status,
       trend: output.trend,
+      dataMode: mode,
     });
   } catch (err) {
     console.error("[zyntra/conversation] Error:", err);
