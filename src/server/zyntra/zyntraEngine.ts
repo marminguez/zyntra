@@ -2,6 +2,7 @@ import { computeBaseline } from "./baseline";
 import { computeRiskScore } from "./riskModel";
 import { buildExplanationBlock } from "./explanation";
 import type { ZyntraInputFeatures, ZyntraOutput } from "./types";
+import type { ZyntraScenario } from "./scenario";
 
 export interface ZyntraEngineInput {
   features: ZyntraInputFeatures;
@@ -33,12 +34,12 @@ export function runZyntraEngine(input: ZyntraEngineInput): ZyntraOutput {
  * Mock input factory — used in dev and demo. Replace with real data fetch.
  */
 export function getMockEngineInput(
-  scenario: "stable" | "unstable" | "deteriorating" = "stable"
+  scenario: ZyntraScenario = "stable"
 ): ZyntraEngineInput {
   const baseHistory = Array.from({ length: 14 }, (_, i) => 22 + Math.sin(i) * 2);
   const tirHistory = Array.from({ length: 14 }, (_, i) => 75 + Math.cos(i) * 3);
 
-  const scenarios = {
+  const scenarios: Record<ZyntraScenario, ZyntraInputFeatures> = {
     stable: {
       glucoseVariability: 22,
       timeInRange: 78,

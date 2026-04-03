@@ -49,6 +49,9 @@ DATABASE_URL="postgresql://zyntra:zyntra@localhost:5432/zyntra?schema=public"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="your-random-secret-here"
 ZYNTRA_FIELD_ENCRYPTION_KEY="<base64 32 bytes>"
+ELEVENLABS_API_KEY="<optional-for-voice-alerts>"
+ELEVENLABS_VOICE_ID="EXAVITQu4vr4xnSDxMaL"
+ELEVENLABS_MODEL_ID="eleven_multilingual_v2"
 ```
 
 Generate encryption key:
@@ -76,6 +79,13 @@ npm run dev
 ```
 
 Open [http://localhost:3000/login](http://localhost:3000/login) and sign in with any email and password `hackathon-dev-only`.
+
+### Optional: Voice chat + spoken risk alerts
+
+- The dashboard supports microphone input in the Zyntra chat (browser speech recognition).
+- Risk alerts and chat replies can be spoken with a female voice.
+- If `ELEVENLABS_API_KEY` is configured, audio is generated with ElevenLabs via `/api/zyntra/voice`.
+- If ElevenLabs is not configured or fails, the app falls back to the browser `speechSynthesis` voice.
 
 ## API Endpoints
 

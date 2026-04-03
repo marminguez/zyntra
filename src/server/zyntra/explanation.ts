@@ -62,7 +62,6 @@ function topDriver(breakdown: RiskBreakdown): string {
 export function generateExplanation(
   status: ZyntraStatus,
   trend: ZyntraTrend,
-  riskScore: number,
   breakdown: RiskBreakdown
 ): string {
   const driver = topDriver(breakdown);
@@ -93,7 +92,7 @@ export function buildExplanationBlock(
   const status = deriveStatus(riskScore);
   const trend = deriveTrend(tirTrend, riskScore);
   const confidence = deriveConfidence(breakdown);
-  const explanation = generateExplanation(status, trend, riskScore, breakdown);
+  const explanation = generateExplanation(status, trend, breakdown);
 
   return { status, trend, confidence, explanation };
 }

@@ -3,8 +3,16 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/server/auth/auth";
 import { runZyntraEngine, getMockEngineInput } from "@/server/zyntra/zyntraEngine";
 import type { ZyntraOutput, ZyntraStatus } from "@/server/zyntra/types";
+import { parseZyntraScenario } from "@/server/zyntra/scenario";
 
 const ALERT_THRESHOLD = 70;
+const STATUS_REPLIES: Record<ZyntraStatus, string> = {
+  stable: "You're doing well. Your metabolic patterns are within your personal baseline.",
+  unstable:
+    "Some of your signals are outside your usual range right now. Nothing alarming, but worth being mindful of.",
+  deteriorating:
+    "Zyntra has detected a pattern that previously led to instability. It's a good time to pay closer attention to sleep, movement, and meals.",
+};
 
 function buildConversationReply(
   query: string,
@@ -14,19 +22,13 @@ function buildConversationReply(
 
   // "How am I doing?"
   if (q.includes("how am i") || q.includes("doing") || q.includes("status")) {
-    const statusMap: Record<ZyntraStatus, string> = {
-      stable: "You're doing well. Your metabolic patterns are within your personal baseline.",
-      unstable: "Some of your signals are outside your usual range right now. Nothing alarming, but worth being mindful of.",
-      deteriorating:
-        "Zyntra has detected a pattern that previously led to instability. It's a good time to pay closer attention to sleep, movement, and meals.",
-    };
     const trend =
       output.trend === "improving"
         ? " The good news: things appear to be trending in a positive direction."
         : output.trend === "worsening"
         ? " The trajectory is currently declining — small actions now may help."
         : "";
-    return `${statusMap[output.status]}${trend} Your current risk score is ${output.riskScore}/100 (confidence: ${output.confidence}).`;
+    return `${STATUS_REPLIES[output.status]}${trend} Your current risk score is ${output.riskScore}/100 (confidence: ${output.confidence}).`;
   }
 
   // "Why?"
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const message: string = body?.message ?? "";
-    const scenario = body?.scenario ?? "stable";
+    const scenario = parseZyntraScenario(body?.scenario);
 
     if (!message) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
