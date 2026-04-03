@@ -1,9 +1,3 @@
-/**
- * FreeStyle Libre integration via LibreLinkUp unofficial API.
- * Uses @diakem/libre-link-up-api-client.
- * NOTE: This is an unofficial API. For production pilots use
- * Abbott's official LibreView API or an intermediary like Thryve.
- */
 import { LibreLinkUpClient } from "@diakem/libre-link-up-api-client";
 
 export interface LibreReading {
@@ -34,20 +28,20 @@ function normalizeLibreError(err: unknown): LibreSyncError {
 
   if (status === 401 || status === 403) {
     return new LibreSyncError(
-      "LibreLink rechazó el acceso (401/403). Usa credenciales de LibreLinkUp (no portal web de LibreView), verifica email/contraseña y confirma que la cuenta tenga datos compartidos.",
+      "LibreLink rejected access (401/403). Verify your LibreLinkUp email/password and shared data settings.",
       status
     );
   }
 
   if (status === 429) {
-    return new LibreSyncError("LibreLink temporalmente limitó las solicitudes (429). Intenta nuevamente en unos minutos.", status);
+    return new LibreSyncError("LibreLink rate-limited requests (429). Please retry in a few minutes.", status);
   }
 
-  const message = err instanceof Error ? err.message : "No fue posible obtener datos desde LibreLink";
+  const message = err instanceof Error ? err.message : "Could not fetch LibreLink data";
 
-  if (message.toLowerCase().includes("reading 'token'") || message.toLowerCase().includes("reading \"token\"")) {
+  if (message.toLowerCase().includes("reading 'token'") || message.toLowerCase().includes('reading "token"')) {
     return new LibreSyncError(
-      "LibreLink no devolvió una sesión válida. Vuelve a conectar tu cuenta y confirma que tengas datos compartidos en LibreLinkUp.",
+      "LibreLink did not return a valid session token. Reconnect and ensure shared data is enabled in LibreLinkUp.",
       status
     );
   }
@@ -75,10 +69,6 @@ function parseReadings(response: unknown): LibreReading[] {
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 }
 
-/**
- * Fetches the latest CGM readings for a LibreLinkUp account.
- * Returns up to 96 readings (8h at 5-min intervals).
- */
 export async function fetchLatestReadings(email: string, password: string): Promise<LibreReading[]> {
   let lastError: unknown;
 
@@ -91,7 +81,6 @@ export async function fetchLatestReadings(email: string, password: string): Prom
       lastError = err;
       const status = extractStatus(err);
 
-      // Retry on auth/service issues because Abbott changes API behavior by app version.
       if (status === 401 || status === 403 || status === 404 || status === 502 || status === 503) {
         continue;
       }

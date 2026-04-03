@@ -1,61 +1,87 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/server/auth/rbac";
-import { syncFreestyleForPatient } from "@/server/integrations/freestyle/sync";
-import { LibreSyncError } from "@/server/integrations/freestyle/client";
 import { resolvePatientIdForUser } from "@/server/auth/patientAccess";
+import { verifyLibreConnection } from "@/server/integrations/freestyle/verifier";
 import { prisma } from "@/server/db/prisma";
 import { decryptValue } from "@/server/security/crypto";
+import { syncFreestyleForPatient } from "@/server/integrations/freestyle/sync";
+import { LibreSyncError } from "@/server/integrations/freestyle/client";
 
 export async function POST(req: NextRequest) {
   const auth = await requireRole("ADMIN", "CLINICIAN", "SERVICE", "PATIENT");
   if (!auth.authorized) return auth.response;
 
   try {
-    const { patientId: requestedPatientId } = await req.json();
+    const { patientId: requestedPatientId, isOnline, region } = await req.json();
     const patientId = await resolvePatientIdForUser(auth.role, auth.userId, requestedPatientId);
-
-    const integration = await prisma.integrationToken.findUnique({
+    const freestyleToken = await prisma.integrationToken.findUnique({
       where: { patientId_provider: { patientId, provider: "freestyle" } },
     });
 
-    let email: string | undefined;
-    let password: string | undefined;
+    if (freestyleToken?.accessToken && freestyleToken.refreshToken) {
+      const email = await decryptValue(freestyleToken.accessToken);
+      const password = await decryptValue(freestyleToken.refreshToken);
+      const syncResult = await syncFreestyleForPatient(patientId, auth.userId, email, password);
 
-    if (integration?.accessToken && integration?.refreshToken) {
-      email = await decryptValue(integration.accessToken);
-      password = await decryptValue(integration.refreshToken);
-    } else {
-      email = process.env.LIBRE_EMAIL;
-      password = process.env.LIBRE_PASSWORD;
+      const connection = await prisma.libreConnection.upsert({
+        where: { patientId },
+        create: {
+          patientId,
+          userId: auth.userId,
+          invitedEmail: email.trim().toLowerCase(),
+          acceptedEmail: email.trim().toLowerCase(),
+          status: syncResult.synced > 0 ? "SYNC_ACTIVE" : "WAITING_FOR_DATA",
+          inviteSentAt: new Date(),
+          acceptedAt: new Date(),
+          firstDataAt: null,
+          lastDataAt: null,
+          lastCheckAt: new Date(),
+          errorCode: syncResult.synced > 0 ? null : "NO_GLUCOSE_UPLOADED_YET",
+          errorMessage:
+            syncResult.synced > 0
+              ? null
+              : "The connection exists, but no glucose data has reached the cloud yet. Keep the Libre phone online and try again.",
+        },
+        update: {
+          acceptedEmail: email.trim().toLowerCase(),
+          status: syncResult.synced > 0 ? "SYNC_ACTIVE" : "WAITING_FOR_DATA",
+          lastCheckAt: new Date(),
+          errorCode: syncResult.synced > 0 ? null : "NO_GLUCOSE_UPLOADED_YET",
+          errorMessage:
+            syncResult.synced > 0
+              ? null
+              : "The connection exists, but no glucose data has reached the cloud yet. Keep the Libre phone online and try again.",
+        },
+      });
+
+      return NextResponse.json({
+        status: connection.status,
+        synced: syncResult.synced,
+        errors: syncResult.errors,
+        acceptedAt: connection.acceptedAt?.toISOString() ?? null,
+        lastDataAt: connection.lastDataAt?.toISOString() ?? null,
+        lastCheckAt: connection.lastCheckAt?.toISOString() ?? null,
+        errorCode: connection.errorCode,
+        errorMessage: connection.errorMessage,
+      });
     }
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: "LibreLink credentials are missing. Connect LibreLink first to sync real data." },
-        { status: 400 }
-      );
-    }
+    const connection = await verifyLibreConnection({ patientId, userId: auth.userId, isOnline, region });
 
-    const result = await syncFreestyleForPatient(patientId, auth.userId, email, password);
-
-    await prisma.integrationToken.updateMany({
-      where: { patientId, provider: "freestyle" },
-      data: {
-        scope: JSON.stringify({
-          lastSyncAt: new Date().toISOString(),
-          lastSyncedReadings: result.synced,
-        }),
-      },
+    return NextResponse.json({
+      status: connection.status,
+      acceptedAt: connection.acceptedAt?.toISOString() ?? null,
+      lastDataAt: connection.lastDataAt?.toISOString() ?? null,
+      lastCheckAt: connection.lastCheckAt?.toISOString() ?? null,
+      errorCode: connection.errorCode,
+      errorMessage: connection.errorMessage,
     });
-
-    return NextResponse.json(result);
   } catch (err: unknown) {
     if (err instanceof LibreSyncError) {
       const status = err.status === 401 || err.status === 403 ? 400 : 502;
       return NextResponse.json({ error: err.message }, { status });
     }
-
-    const message = err instanceof Error ? err.message : "Failed to sync FreeStyle";
+    const message = err instanceof Error ? err.message : "Failed to verify FreeStyle connection";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
