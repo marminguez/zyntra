@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/server/auth/rbac";
 import { syncFreestyleForPatient } from "@/server/integrations/freestyle/sync";
+import { LibreSyncError } from "@/server/integrations/freestyle/client";
 import { resolvePatientIdForUser } from "@/server/auth/patientAccess";
 import { prisma } from "@/server/db/prisma";
 import { decryptValue } from "@/server/security/crypto";
@@ -29,19 +30,21 @@ export async function POST(req: NextRequest) {
     }
 
     if (!email || !password) {
-      // Mock CGM Sync for local development if credentials are missing
-      const { ingestSignal } = await import("@/server/zyntra/ingest");
-      const ts = new Date().toISOString();
-      await ingestSignal(
-        { patientId, source: "CGM", ts, type: "cgm_glucose_mgdl", value: 112, unit: "mg/dL", meta: { trend: "STABLE" } },
-        auth.userId
+      return NextResponse.json(
+        { error: "LibreLink credentials are missing. Connect LibreLink first to sync real data." },
+        { status: 400 }
       );
-      return NextResponse.json({ synced: 1, errors: [] });
     }
 
     const result = await syncFreestyleForPatient(patientId, auth.userId, email, password);
     return NextResponse.json(result);
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to sync FreeStyle" }, { status: 500 });
+  } catch (err: unknown) {
+    if (err instanceof LibreSyncError) {
+      const status = err.status === 401 || err.status === 403 ? 400 : 502;
+      return NextResponse.json({ error: err.message }, { status });
+    }
+
+    const message = err instanceof Error ? err.message : "Failed to sync FreeStyle";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
