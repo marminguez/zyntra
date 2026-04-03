@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/server/auth/auth";
 import { runZyntraEngine, getMockEngineInput } from "@/server/zyntra/zyntraEngine";
+import { parseZyntraScenario } from "@/server/zyntra/scenario";
 
 /**
  * GET /api/zyntra/status
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
 
     // Determine scenario from query param (dev only) or derive from real data
     const { searchParams } = new URL(request.url);
-    const scenario = (searchParams.get("scenario") as "stable" | "unstable" | "deteriorating") ?? "stable";
+    const scenario = parseZyntraScenario(searchParams.get("scenario"));
 
     const input = getMockEngineInput(scenario);
     const result = runZyntraEngine(input);

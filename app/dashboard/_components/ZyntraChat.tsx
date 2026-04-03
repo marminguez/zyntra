@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { ZyntraOutput } from "@/server/zyntra/types";
+import { speakText } from "../_lib/voiceAssistant";
 
 interface Message {
   role: "user" | "zyntra";
@@ -21,28 +22,64 @@ interface ZyntraChatProps {
 }
 
 export function ZyntraChat({ initialOutput, onClose }: ZyntraChatProps) {
+  const initialMessage =
+    initialOutput?.riskScore != null && initialOutput.riskScore > 70
+      ? `You are following a pattern that previously led to instability. Your risk score is ${initialOutput.riskScore}/100. ${initialOutput.explanation}`
+      : "Hi! I'm Zyntra. I can explain your current metabolic patterns and suggest what you can do. What would you like to know?";
+
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "zyntra",
-      text:
-        initialOutput?.riskScore != null && initialOutput.riskScore > 70
-          ? `You are following a pattern that previously led to instability. Your risk score is ${initialOutput.riskScore}/100. ${initialOutput.explanation}`
-          : "Hi! I'm Zyntra. I can explain your current metabolic patterns and suggest what you can do. What would you like to know?",
+      text: initialMessage,
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  useEffect(() => {
+    const SpeechRecognitionApi =
+      typeof window !== "undefined"
+        ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+        : undefined;
+
+    if (!SpeechRecognitionApi) return;
+
+    const recognition = new SpeechRecognitionApi();
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? "";
+      if (transcript) {
+        setInput(transcript);
+        void sendMessage(transcript);
+      }
+    };
+
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognitionRef.current = recognition;
+
+    return () => {
+      recognition.stop();
+      recognitionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   async function sendMessage(text: string) {
-    if (!text.trim() || isLoading) return;
+    const trimmedMessage = text.trim();
+    if (!trimmedMessage || isLoading) return;
 
-    const userMsg: Message = { role: "user", text: text.trim(), timestamp: new Date() };
+    const userMsg: Message = { role: "user", text: trimmedMessage, timestamp: new Date() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsLoading(true);
@@ -51,13 +88,19 @@ export function ZyntraChat({ initialOutput, onClose }: ZyntraChatProps) {
       const res = await fetch("/api/zyntra/conversation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: trimmedMessage }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Conversation request failed");
+      }
       setMessages((prev) => [
         ...prev,
         { role: "zyntra", text: data.reply ?? "I couldn't get a response. Please try again.", timestamp: new Date() },
       ]);
+      if (data?.reply) {
+        await speakText(data.reply, { preferElevenLabs: true });
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -73,6 +116,20 @@ export function ZyntraChat({ initialOutput, onClose }: ZyntraChatProps) {
       e.preventDefault();
       sendMessage(input);
     }
+  }
+
+  function toggleVoiceInput() {
+    const recognition = recognitionRef.current;
+    if (!recognition || isLoading) return;
+
+    if (isListening) {
+      recognition.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setIsListening(true);
+    recognition.start();
   }
 
   return (
@@ -174,6 +231,24 @@ export function ZyntraChat({ initialOutput, onClose }: ZyntraChatProps) {
               className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:opacity-50"
             />
             <button
+              id="zyntra-chat-mic"
+              onClick={toggleVoiceInput}
+              disabled={isLoading || !recognitionRef.current}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all disabled:opacity-30 ${
+                isListening ? "bg-rose-600 text-white animate-pulse" : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+              }`}
+              title={recognitionRef.current ? "Speak to Zyntra" : "Speech recognition not available in this browser"}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 1v11m0 0a3 3 0 003-3V5a3 3 0 10-6 0v4a3 3 0 003 3zm-7 0a7 7 0 0014 0M8 21h8"
+                />
+              </svg>
+            </button>
+            <button
               id="zyntra-chat-send"
               onClick={() => sendMessage(input)}
               disabled={!input.trim() || isLoading}
@@ -188,4 +263,28 @@ export function ZyntraChat({ initialOutput, onClose }: ZyntraChatProps) {
       </div>
     </div>
   );
+}
+
+type SpeechRecognitionEvent = Event & {
+  results: SpeechRecognitionResultList;
+};
+
+type SpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
 }

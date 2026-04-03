@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import type { MLPayload } from "./ClinicianDashboard";
 import type { ZyntraOutput } from "@/server/zyntra/types";
@@ -14,6 +14,7 @@ import { RecommendationsView } from "./views/RecommendationsView";
 import { HistoryView } from "./views/HistoryView";
 import { ZyntraChat } from "./ZyntraChat";
 import { ZyntraStatusCard } from "./ZyntraStatusCard";
+import { speakText } from "../_lib/voiceAssistant";
 
 const ZYNTRA_ALERT_THRESHOLD = 70;
 
@@ -28,6 +29,8 @@ export function PatientDashboard() {
     const [zyntraData, setZyntraData] = useState<ZyntraOutput | null>(null);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [zyntraLoading, setZyntraLoading] = useState(false);
+    const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(true);
+    const hasAnnouncedRiskRef = useRef(false);
 
     // New navigation state
     const [activeTab, setActiveTab] = useState<"DASHBOARD" | "BASELINE" | "RECOMMENDATIONS" | "HISTORY" | "DEVICES">("DASHBOARD");
@@ -97,6 +100,23 @@ export function PatientDashboard() {
         if (activeTab === "DASHBOARD") fetchZyntra();
     }, [activeTab]);
 
+    useEffect(() => {
+        if (!voiceAlertsEnabled || !zyntraData) return;
+
+        if (zyntraData.riskScore > ZYNTRA_ALERT_THRESHOLD && !hasAnnouncedRiskRef.current) {
+            hasAnnouncedRiskRef.current = true;
+            void speakText(
+                `Zyntra alert. Your current risk score is ${zyntraData.riskScore} out of 100. Please review sleep, activity, and meals now.`,
+                { preferElevenLabs: true }
+            );
+            return;
+        }
+
+        if (zyntraData.riskScore <= ZYNTRA_ALERT_THRESHOLD) {
+            hasAnnouncedRiskRef.current = false;
+        }
+    }, [voiceAlertsEnabled, zyntraData]);
+
     async function handleSyncFitbit() {
         setIsSyncingFitbit(true);
         setSyncMessage(null);
@@ -150,10 +170,23 @@ export function PatientDashboard() {
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => signOut({ callbackUrl: "/login" })}>
                     <span className="font-serif font-bold text-xl ml-2 text-zyntra-navy tracking-tight">Zyntra</span>
                 </div>
-                <div className="flex items-center gap-3 w-8 h-8 rounded-full bg-slate-200 overflow-hidden relative shadow-sm border border-slate-300">
+                <div className="flex items-center gap-2">
+                    <button
+                        id="zyntra-voice-alert-toggle"
+                        onClick={() => setVoiceAlertsEnabled((prev) => !prev)}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                            voiceAlertsEnabled
+                                ? "bg-teal-50 text-teal-700 border-teal-200"
+                                : "bg-slate-100 text-slate-500 border-slate-200"
+                        }`}
+                    >
+                        Voice Alerts {voiceAlertsEnabled ? "On" : "Off"}
+                    </button>
+                    <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden relative shadow-sm border border-slate-300">
                     <svg className="w-8 h-8 text-slate-400 absolute bottom-0 translate-y-1" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
                     </svg>
+                    </div>
                 </div>
             </header>
 

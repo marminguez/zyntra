@@ -14,15 +14,15 @@ const WEIGHTS = {
  * Normalises a value from a source range to [0, 100].
  * If invert is true, higher input = higher risk (e.g., glucose variability).
  */
-function normalise(
+function toRiskScore(
   value: number,
   min: number,
   max: number,
-  invert = false
+  higherIsRiskier = true
 ): number {
   const clamped = Math.max(min, Math.min(max, value));
   const raw = (clamped - min) / (max - min); // 0-1
-  const normalised = invert ? 1 - raw : raw;
+  const normalised = higherIsRiskier ? raw : 1 - raw;
   return normalised * 100;
 }
 
@@ -44,26 +44,26 @@ export function computeRiskScore(
   features: ZyntraInputFeatures,
   baseline: ZyntraBaseline
 ): RiskBreakdown {
-  // Glucose Variability: CV > 36% is very high risk; invert so high CV = high risk score
+  // Glucose Variability: CV > 36% is very high risk.
   const gvZ = zScore(
     features.glucoseVariability,
     baseline.glucoseVariabilityMean,
     baseline.glucoseVariabilityStd
   );
   // Map z-score from [-3,3] → deviation score [0,100] where +3 = 100 risk
-  const glucoseVariabilityScore = normalise(gvZ + 3, 0, 6, false);
+  const glucoseVariabilityScore = toRiskScore(gvZ + 3, 0, 6, true);
 
-  // Time in Range Trend: negative trend is bad; invert so falling TIR = high risk
-  const tirTrendScore = normalise(features.timeInRangeTrend + 20, 0, 40, true);
+  // Time in Range Trend: negative trend is bad.
+  const tirTrendScore = toRiskScore(features.timeInRangeTrend + 20, 0, 40, false);
 
   // Sleep: 0 = no sleep (worst), 100 = perfect
-  const sleepScore = normalise(features.sleepScore, 0, 100, true);
+  const sleepScore = toRiskScore(features.sleepScore, 0, 100, false);
 
-  // HRV: low HRV is bad; invert so low HRV = high risk
-  const hrvScore = normalise(features.hrv, 10, 100, true);
+  // HRV: low HRV is bad.
+  const hrvScore = toRiskScore(features.hrv, 10, 100, false);
 
-  // Activity: sedentary is bad; invert so low activity = high risk
-  const activityScore = normalise(features.activityMinutes, 0, 90, true);
+  // Activity: sedentary is bad.
+  const activityScore = toRiskScore(features.activityMinutes, 0, 90, false);
 
   const riskScore =
     glucoseVariabilityScore * WEIGHTS.glucoseVariability +
