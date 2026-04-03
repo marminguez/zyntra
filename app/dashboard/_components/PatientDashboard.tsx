@@ -48,6 +48,7 @@ export function PatientDashboard() {
     const [libreEmail, setLibreEmail] = useState("");
     const [librePassword, setLibrePassword] = useState("");
     const [libreConnected, setLibreConnected] = useState(false);
+    const [libreLastSyncAt, setLibreLastSyncAt] = useState<string | null>(null);
 
     useEffect(() => {
         if (searchParams?.get("fitbit") === "connected") {
@@ -59,6 +60,27 @@ export function PatientDashboard() {
             setSyncMessage({ type: "error", text: decodeURIComponent(searchParams.get("message") ?? "Fitbit connection failed") });
         }
     }, [searchParams]);
+
+    useEffect(() => {
+        const fetchLibreStatus = async () => {
+            if (!patientId) return;
+            try {
+                const res = await fetch(`/app-api/integrations/freestyle/status?patientId=${encodeURIComponent(patientId)}`, {
+                    credentials: "include",
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                setLibreConnected(Boolean(data.connected));
+                setLibreLastSyncAt(typeof data.lastSyncAt === "string" ? data.lastSyncAt : null);
+            } catch (err) {
+                console.error("Failed to load LibreLink status", err);
+            }
+        };
+
+        if (activeTab === "DEVICES") {
+            void fetchLibreStatus();
+        }
+    }, [activeTab, patientId]);
 
     useEffect(() => {
         const fetchMyRisk = async () => {
@@ -221,6 +243,7 @@ export function PatientDashboard() {
             const data = await res.json();
             if (res.ok) {
                 setLibreConnected(true);
+                setLibreLastSyncAt(new Date().toISOString());
                 setSyncMessage({ type: "success", text: "FreeStyle CGM data synced successfully" });
                 await fetchZyntraStatus();
             } else {
@@ -251,6 +274,7 @@ export function PatientDashboard() {
             const data = await res.json();
             if (res.ok) {
                 setLibreConnected(true);
+                setLibrePassword("");
                 setSyncMessage({ type: "success", text: "LibreLink account connected. You can sync real data now." });
             } else {
                 setSyncMessage({ type: "error", text: `Connection failed: ${data.error || "Unknown error"}` });
@@ -409,6 +433,11 @@ export function PatientDashboard() {
                                         {libreConnected ? "Connected" : "Not connected"}
                                     </span>
                                 </div>
+                                {libreLastSyncAt && (
+                                    <p className="text-xs text-slate-500 -mt-2">
+                                        Last sync: {new Date(libreLastSyncAt).toLocaleString()}
+                                    </p>
+                                )}
                                 <div className="grid grid-cols-1 gap-3">
                                     <input
                                         type="email"
@@ -425,6 +454,9 @@ export function PatientDashboard() {
                                         className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                                     />
                                 </div>
+                                <p className="text-xs text-slate-500">
+                                    Use LibreLinkUp credentials and make sure glucose sharing is enabled.
+                                </p>
                                 <div className="flex gap-3 mt-2">
                                     <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">
                                         {isConnectingLibre ? "Connecting..." : "Connect LibreLink"}

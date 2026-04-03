@@ -16,17 +16,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
+    const normalizedEmail = String(email).trim();
+    const normalizedPassword = String(password);
+
     await prisma.integrationToken.upsert({
       where: { patientId_provider: { patientId, provider: "freestyle" } },
       create: {
         patientId,
         provider: "freestyle",
-        accessToken: await encryptValue(String(email).trim()),
-        refreshToken: await encryptValue(String(password)),
+        accessToken: await encryptValue(normalizedEmail),
+        refreshToken: await encryptValue(normalizedPassword),
       },
       update: {
-        accessToken: await encryptValue(String(email).trim()),
-        refreshToken: await encryptValue(String(password)),
+        accessToken: await encryptValue(normalizedEmail),
+        refreshToken: await encryptValue(normalizedPassword),
       },
     });
 
