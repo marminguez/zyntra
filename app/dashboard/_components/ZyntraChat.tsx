@@ -1,0 +1,191 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import type { ZyntraOutput } from "@/server/zyntra/types";
+
+interface Message {
+  role: "user" | "zyntra";
+  text: string;
+  timestamp: Date;
+}
+
+const QUICK_ACTIONS = [
+  { label: "How am I doing?", query: "How am I doing?" },
+  { label: "Why?", query: "Why?" },
+  { label: "What can I do?", query: "What can I do?" },
+];
+
+interface ZyntraChatProps {
+  initialOutput: ZyntraOutput | null;
+  onClose: () => void;
+}
+
+export function ZyntraChat({ initialOutput, onClose }: ZyntraChatProps) {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: "zyntra",
+      text:
+        initialOutput?.riskScore != null && initialOutput.riskScore > 70
+          ? `You are following a pattern that previously led to instability. Your risk score is ${initialOutput.riskScore}/100. ${initialOutput.explanation}`
+          : "Hi! I'm Zyntra. I can explain your current metabolic patterns and suggest what you can do. What would you like to know?",
+      timestamp: new Date(),
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function sendMessage(text: string) {
+    if (!text.trim() || isLoading) return;
+
+    const userMsg: Message = { role: "user", text: text.trim(), timestamp: new Date() };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/zyntra/conversation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        { role: "zyntra", text: data.reply ?? "I couldn't get a response. Please try again.", timestamp: new Date() },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "zyntra", text: "Something went wrong. Please try again.", timestamp: new Date() },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(input);
+    }
+  }
+
+  return (
+    <div
+      id="zyntra-chat-overlay"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-lg bg-white rounded-t-[2rem] shadow-2xl flex flex-col"
+           style={{ height: "82vh" }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-zyntra-navy to-teal-600 flex items-center justify-center shadow-md">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-bold text-slate-900 text-sm">Zyntra</p>
+              <p className="text-xs text-teal-600 font-medium flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block animate-pulse" />
+                Active
+              </p>
+            </div>
+          </div>
+          <button
+            id="zyntra-chat-close"
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Message List */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              {msg.role === "zyntra" && (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-zyntra-navy to-teal-600 flex items-center justify-center text-white text-xs font-bold mr-2 mt-auto flex-shrink-0">
+                  Z
+                </div>
+              )}
+              <div
+                className={`max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-zyntra-navy text-white rounded-br-sm"
+                    : "bg-slate-100 text-slate-800 rounded-bl-sm"
+                }`}
+              >
+                {msg.text}
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-zyntra-navy to-teal-600 flex items-center justify-center text-white text-xs font-bold mr-2 mt-auto flex-shrink-0">Z</div>
+              <div className="bg-slate-100 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1.5 items-center">
+                <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Quick Actions */}
+        <div className="px-5 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
+          {QUICK_ACTIONS.map((action) => (
+            <button
+              key={action.query}
+              id={`zyntra-quick-${action.query.toLowerCase().replace(/[^a-z]/g, "-")}`}
+              onClick={() => sendMessage(action.query)}
+              disabled={isLoading}
+              className="flex-shrink-0 px-4 py-2 border border-slate-200 rounded-full text-xs font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all disabled:opacity-50 whitespace-nowrap"
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Input */}
+        <div className="px-4 pb-6 pt-1">
+          <div className="flex items-center gap-2 bg-slate-100 rounded-2xl px-4 py-3">
+            <input
+              id="zyntra-chat-input"
+              type="text"
+              placeholder="Ask Zyntra anything…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+              className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:opacity-50"
+            />
+            <button
+              id="zyntra-chat-send"
+              onClick={() => sendMessage(input)}
+              disabled={!input.trim() || isLoading}
+              className="w-8 h-8 rounded-full bg-zyntra-navy flex items-center justify-center text-white transition-all disabled:opacity-30 hover:bg-slate-800"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
