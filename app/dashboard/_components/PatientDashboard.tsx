@@ -17,7 +17,6 @@ import { ZyntraStatusCard } from "./ZyntraStatusCard";
 import { speakText } from "../_lib/voiceAssistant";
 
 const ZYNTRA_ALERT_THRESHOLD = 70;
-const ZYNTRA_PREVENTIVE_THRESHOLD = 60;
 
 export function PatientDashboard() {
     const { data: session } = useSession();
@@ -31,9 +30,7 @@ export function PatientDashboard() {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [zyntraLoading, setZyntraLoading] = useState(false);
     const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(true);
-    const [screenOffSimulationEnabled, setScreenOffSimulationEnabled] = useState(false);
     const hasAnnouncedRiskRef = useRef(false);
-    const hasAnnouncedPreventiveRef = useRef(false);
 
     // New navigation state
     const [activeTab, setActiveTab] = useState<"DASHBOARD" | "BASELINE" | "RECOMMENDATIONS" | "HISTORY" | "DEVICES">("DASHBOARD");
@@ -44,10 +41,6 @@ export function PatientDashboard() {
     const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
     const [isSyncingFitbit, setIsSyncingFitbit] = useState(false);
     const [isSyncingLibre, setIsSyncingLibre] = useState(false);
-    const [isConnectingLibre, setIsConnectingLibre] = useState(false);
-    const [libreEmail, setLibreEmail] = useState("");
-    const [librePassword, setLibrePassword] = useState("");
-    const [libreConnected, setLibreConnected] = useState(false);
 
     useEffect(() => {
         if (searchParams?.get("fitbit") === "connected") {
@@ -124,65 +117,6 @@ export function PatientDashboard() {
         }
     }, [voiceAlertsEnabled, zyntraData]);
 
-    useEffect(() => {
-        if (!voiceAlertsEnabled || !screenOffSimulationEnabled || !zyntraData) return;
-
-        const preventiveMessage = `Preventive alert. Your risk trend is rising, currently ${zyntraData.riskScore} out of 100. Act now: hydrate, avoid rapid carbs, and take a 10 minute walk to reduce the chance of instability.`;
-        const shouldTriggerPreventiveAlert =
-            zyntraData.riskScore >= ZYNTRA_PREVENTIVE_THRESHOLD &&
-            zyntraData.riskScore <= ZYNTRA_ALERT_THRESHOLD;
-
-        if (shouldTriggerPreventiveAlert && !hasAnnouncedPreventiveRef.current) {
-            hasAnnouncedPreventiveRef.current = true;
-            void speakText(preventiveMessage, { preferElevenLabs: true });
-
-            if ("Notification" in window && Notification.permission === "granted") {
-                new Notification("Zyntra preventive alert", {
-                    body: "Rising risk detected. Hydrate, avoid rapid carbs, and walk 10 minutes now.",
-                });
-            }
-            return;
-        }
-
-        if (!shouldTriggerPreventiveAlert) {
-            hasAnnouncedPreventiveRef.current = false;
-        }
-    }, [voiceAlertsEnabled, screenOffSimulationEnabled, zyntraData]);
-
-    useEffect(() => {
-        if (!voiceAlertsEnabled || !screenOffSimulationEnabled || !zyntraData) return;
-
-        const onVisibilityChange = () => {
-            const isHidden = document.visibilityState === "hidden";
-            const isRisingRisk =
-                zyntraData.riskScore >= ZYNTRA_PREVENTIVE_THRESHOLD &&
-                zyntraData.riskScore <= ZYNTRA_ALERT_THRESHOLD;
-
-            if (!isHidden || !isRisingRisk) return;
-
-            void speakText(
-                `Screen-off simulation active. Preventive guidance now: hydrate, avoid heavy carbs in the next hour, and walk for 10 minutes to lower risk.`,
-                { preferElevenLabs: true }
-            );
-
-            if ("Notification" in window && Notification.permission === "granted") {
-                new Notification("Zyntra screen-off simulation", {
-                    body: "Preventive action now: hydrate, avoid heavy carbs, and walk 10 minutes.",
-                });
-            }
-        };
-
-        document.addEventListener("visibilitychange", onVisibilityChange);
-        return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-    }, [voiceAlertsEnabled, screenOffSimulationEnabled, zyntraData]);
-
-    async function toggleScreenOffSimulation() {
-        if (!screenOffSimulationEnabled && "Notification" in window && Notification.permission === "default") {
-            await Notification.requestPermission();
-        }
-        setScreenOffSimulationEnabled((prev) => !prev);
-    }
-
     async function handleSyncFitbit() {
         setIsSyncingFitbit(true);
         setSyncMessage(null);
@@ -218,7 +152,6 @@ export function PatientDashboard() {
             });
             const data = await res.json();
             if (res.ok) {
-                setLibreConnected(true);
                 setSyncMessage({ type: "success", text: "FreeStyle CGM data synced successfully" });
             } else {
                 setSyncMessage({ type: "error", text: `Sync failed: ${data.error || "Unknown error"}` });
@@ -227,35 +160,6 @@ export function PatientDashboard() {
             setSyncMessage({ type: "error", text: "Sync failed: Network error" });
         } finally {
             setIsSyncingLibre(false);
-        }
-    }
-
-    async function handleConnectLibre() {
-        if (!libreEmail.trim() || !librePassword.trim()) {
-            setSyncMessage({ type: "error", text: "Please add your LibreLink email and password first." });
-            return;
-        }
-
-        setIsConnectingLibre(true);
-        setSyncMessage(null);
-        try {
-            const res = await fetch("/app-api/integrations/freestyle/connect", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ patientId, email: libreEmail.trim(), password: librePassword }),
-            });
-            const data = await res.json();
-            if (res.ok) {
-                setLibreConnected(true);
-                setSyncMessage({ type: "success", text: "LibreLink account connected. You can sync real data now." });
-            } else {
-                setSyncMessage({ type: "error", text: `Connection failed: ${data.error || "Unknown error"}` });
-            }
-        } catch {
-            setSyncMessage({ type: "error", text: "Connection failed: Network error" });
-        } finally {
-            setIsConnectingLibre(false);
         }
     }
 
@@ -277,17 +181,6 @@ export function PatientDashboard() {
                         }`}
                     >
                         Voice Alerts {voiceAlertsEnabled ? "On" : "Off"}
-                    </button>
-                    <button
-                        id="zyntra-screen-off-sim-toggle"
-                        onClick={toggleScreenOffSimulation}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
-                            screenOffSimulationEnabled
-                                ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                : "bg-slate-100 text-slate-500 border-slate-200"
-                        }`}
-                    >
-                        Screen-Off Sim {screenOffSimulationEnabled ? "On" : "Off"}
                     </button>
                     <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden relative shadow-sm border border-slate-300">
                     <svg className="w-8 h-8 text-slate-400 absolute bottom-0 translate-y-1" fill="currentColor" viewBox="0 0 24 24">
@@ -312,22 +205,6 @@ export function PatientDashboard() {
                     <button id="zyntra-alert-talk" onClick={() => setIsChatOpen(true)} className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors whitespace-nowrap mt-1">
                         Talk to Zyntra →
                     </button>
-                </div>
-            )}
-
-            {screenOffSimulationEnabled && activeTab === "DASHBOARD" && (
-                <div className="mx-6 mb-4 p-4 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-start gap-3 animate-in fade-in duration-500">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                        </svg>
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-indigo-900 font-semibold text-sm">Screen-Off simulation enabled</p>
-                        <p className="text-indigo-700 text-sm mt-0.5 leading-snug">
-                            If risk rises to {ZYNTRA_PREVENTIVE_THRESHOLD}–{ZYNTRA_ALERT_THRESHOLD}, Zyntra will speak preventive guidance and send a notification even while the screen is off.
-                        </p>
-                    </div>
                 </div>
             )}
 
@@ -402,33 +279,11 @@ export function PatientDashboard() {
                                             <p className="text-sm text-slate-500">Continuous Glucose</p>
                                         </div>
                                     </div>
-                                    <span className={`px-3 py-1 text-xs font-bold rounded-full border ${libreConnected ? "bg-green-50 text-green-700 border-green-100" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
-                                        {libreConnected ? "Connected" : "Not connected"}
-                                    </span>
+                                    <span className="px-3 py-1 bg-slate-50 text-slate-600 text-xs font-bold rounded-full border border-slate-200">Not connected</span>
                                 </div>
-                                <div className="grid grid-cols-1 gap-3">
-                                    <input
-                                        type="email"
-                                        value={libreEmail}
-                                        onChange={(e) => setLibreEmail(e.target.value)}
-                                        placeholder="LibreLink email"
-                                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
-                                    />
-                                    <input
-                                        type="password"
-                                        value={librePassword}
-                                        onChange={(e) => setLibrePassword(e.target.value)}
-                                        placeholder="LibreLink password"
-                                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
-                                    />
-                                </div>
-                                <p className="text-xs text-slate-500 -mt-1">Use the same credentials as LibreLink app and make sure LibreLinkUp sharing is enabled.</p>
                                 <div className="flex gap-3 mt-2">
-                                    <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">
-                                        {isConnectingLibre ? "Connecting..." : "Connect LibreLink"}
-                                    </button>
-                                    <button onClick={handleSyncLibre} disabled={isSyncingLibre || !libreConnected} className="flex-1 bg-zyntra-teal text-zyntra-navy text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-teal-300 disabled:opacity-50">
-                                        {isSyncingLibre ? "Syncing..." : "Sync real data"}
+                                    <button onClick={handleSyncLibre} disabled={isSyncingLibre} className="flex-1 bg-zyntra-teal text-zyntra-navy text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-teal-300 disabled:opacity-50">
+                                        {isSyncingLibre ? "Syncing..." : "Connect & Sync"}
                                     </button>
                                 </div>
                             </div>
