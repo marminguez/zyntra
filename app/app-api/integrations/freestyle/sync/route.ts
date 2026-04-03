@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/server/auth/rbac";
 import { syncFreestyleForPatient } from "@/server/integrations/freestyle/sync";
 import { resolvePatientIdForUser } from "@/server/auth/patientAccess";
+import { prisma } from "@/server/db/prisma";
+import { decryptValue } from "@/server/security/crypto";
 
 export async function POST(req: NextRequest) {
   const auth = await requireRole("ADMIN", "CLINICIAN", "SERVICE", "PATIENT");
@@ -11,8 +13,20 @@ export async function POST(req: NextRequest) {
     const { patientId: requestedPatientId } = await req.json();
     const patientId = await resolvePatientIdForUser(auth.role, auth.userId, requestedPatientId);
 
-    const email    = process.env.LIBRE_EMAIL;
-    const password = process.env.LIBRE_PASSWORD;
+    const integration = await prisma.integrationToken.findUnique({
+      where: { patientId_provider: { patientId, provider: "freestyle" } },
+    });
+
+    let email: string | undefined;
+    let password: string | undefined;
+
+    if (integration?.accessToken && integration?.refreshToken) {
+      email = await decryptValue(integration.accessToken);
+      password = await decryptValue(integration.refreshToken);
+    } else {
+      email = process.env.LIBRE_EMAIL;
+      password = process.env.LIBRE_PASSWORD;
+    }
 
     if (!email || !password) {
       // Mock CGM Sync for local development if credentials are missing

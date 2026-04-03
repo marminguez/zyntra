@@ -44,6 +44,10 @@ export function PatientDashboard() {
     const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
     const [isSyncingFitbit, setIsSyncingFitbit] = useState(false);
     const [isSyncingLibre, setIsSyncingLibre] = useState(false);
+    const [isConnectingLibre, setIsConnectingLibre] = useState(false);
+    const [libreEmail, setLibreEmail] = useState("");
+    const [librePassword, setLibrePassword] = useState("");
+    const [libreConnected, setLibreConnected] = useState(false);
 
     useEffect(() => {
         if (searchParams?.get("fitbit") === "connected") {
@@ -214,6 +218,7 @@ export function PatientDashboard() {
             });
             const data = await res.json();
             if (res.ok) {
+                setLibreConnected(true);
                 setSyncMessage({ type: "success", text: "FreeStyle CGM data synced successfully" });
             } else {
                 setSyncMessage({ type: "error", text: `Sync failed: ${data.error || "Unknown error"}` });
@@ -222,6 +227,35 @@ export function PatientDashboard() {
             setSyncMessage({ type: "error", text: "Sync failed: Network error" });
         } finally {
             setIsSyncingLibre(false);
+        }
+    }
+
+    async function handleConnectLibre() {
+        if (!libreEmail.trim() || !librePassword.trim()) {
+            setSyncMessage({ type: "error", text: "Please add your LibreLink email and password first." });
+            return;
+        }
+
+        setIsConnectingLibre(true);
+        setSyncMessage(null);
+        try {
+            const res = await fetch("/app-api/integrations/freestyle/connect", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ patientId, email: libreEmail.trim(), password: librePassword }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setLibreConnected(true);
+                setSyncMessage({ type: "success", text: "LibreLink account connected. You can sync real data now." });
+            } else {
+                setSyncMessage({ type: "error", text: `Connection failed: ${data.error || "Unknown error"}` });
+            }
+        } catch {
+            setSyncMessage({ type: "error", text: "Connection failed: Network error" });
+        } finally {
+            setIsConnectingLibre(false);
         }
     }
 
@@ -368,11 +402,32 @@ export function PatientDashboard() {
                                             <p className="text-sm text-slate-500">Continuous Glucose</p>
                                         </div>
                                     </div>
-                                    <span className="px-3 py-1 bg-slate-50 text-slate-600 text-xs font-bold rounded-full border border-slate-200">Not connected</span>
+                                    <span className={`px-3 py-1 text-xs font-bold rounded-full border ${libreConnected ? "bg-green-50 text-green-700 border-green-100" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                                        {libreConnected ? "Connected" : "Not connected"}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-3">
+                                    <input
+                                        type="email"
+                                        value={libreEmail}
+                                        onChange={(e) => setLibreEmail(e.target.value)}
+                                        placeholder="LibreLink email"
+                                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                    />
+                                    <input
+                                        type="password"
+                                        value={librePassword}
+                                        onChange={(e) => setLibrePassword(e.target.value)}
+                                        placeholder="LibreLink password"
+                                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                    />
                                 </div>
                                 <div className="flex gap-3 mt-2">
-                                    <button onClick={handleSyncLibre} disabled={isSyncingLibre} className="flex-1 bg-zyntra-teal text-zyntra-navy text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-teal-300 disabled:opacity-50">
-                                        {isSyncingLibre ? "Syncing..." : "Connect & Sync"}
+                                    <button onClick={handleConnectLibre} disabled={isConnectingLibre} className="flex-1 border border-amber-200 text-amber-700 text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-amber-50 disabled:opacity-50">
+                                        {isConnectingLibre ? "Connecting..." : "Connect LibreLink"}
+                                    </button>
+                                    <button onClick={handleSyncLibre} disabled={isSyncingLibre || !libreConnected} className="flex-1 bg-zyntra-teal text-zyntra-navy text-center py-3 rounded-xl font-medium text-sm transition-colors hover:bg-teal-300 disabled:opacity-50">
+                                        {isSyncingLibre ? "Syncing..." : "Sync real data"}
                                     </button>
                                 </div>
                             </div>
