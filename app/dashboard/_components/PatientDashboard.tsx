@@ -18,6 +18,7 @@ import { speakText } from "../_lib/voiceAssistant";
 
 const ZYNTRA_ALERT_THRESHOLD = 70;
 const ZYNTRA_PREVENTIVE_THRESHOLD = 60;
+const LIBRE_REQUIRED_INVITE_EMAIL = "marminguez@yahoo.es";
 type LibreWizardStatus =
     | "NOT_STARTED"
     | "INVITE_SENT"
@@ -57,7 +58,7 @@ export function PatientDashboard() {
     const [isConnectingLibre, setIsConnectingLibre] = useState(false);
     const [isAcceptingLibre, setIsAcceptingLibre] = useState(false);
     const [isResettingLibre, setIsResettingLibre] = useState(false);
-    const [libreEmail, setLibreEmail] = useState("");
+    const [libreEmail, setLibreEmail] = useState(LIBRE_REQUIRED_INVITE_EMAIL);
     const [libreAcceptedEmail, setLibreAcceptedEmail] = useState("");
     const [libreStatus, setLibreStatus] = useState<LibreWizardStatus>("NOT_STARTED");
     const [libreLastSyncAt, setLibreLastSyncAt] = useState<string | null>(null);
@@ -90,7 +91,9 @@ export function PatientDashboard() {
                 setLibreAcceptedAt(typeof data?.connection?.acceptedAt === "string" ? data.connection.acceptedAt : null);
                 setLibreLastDataAt(typeof data?.connection?.lastDataAt === "string" ? data.connection.lastDataAt : null);
                 setLibreErrorMessage(typeof data?.connection?.errorMessage === "string" ? data.connection.errorMessage : null);
-                if (typeof data?.connection?.invitedEmail === "string") setLibreEmail(data.connection.invitedEmail);
+                if (typeof data?.connection?.invitedEmail === "string") {
+                    setLibreEmail(data.connection.invitedEmail.trim().toLowerCase() || LIBRE_REQUIRED_INVITE_EMAIL);
+                }
                 if (typeof data?.connection?.acceptedEmail === "string") setLibreAcceptedEmail(data.connection.acceptedEmail);
             } catch (err) {
                 console.error("Failed to load LibreLink status", err);
@@ -289,8 +292,8 @@ export function PatientDashboard() {
     }
 
     async function handleConnectLibre() {
-        if (!libreEmail.trim()) {
-            setSyncMessage({ type: "error", text: "Please provide the exact invitation email." });
+        if (libreEmail.trim().toLowerCase() !== LIBRE_REQUIRED_INVITE_EMAIL) {
+            setSyncMessage({ type: "error", text: `The invited email must be exactly ${LIBRE_REQUIRED_INVITE_EMAIL}.` });
             return;
         }
 
@@ -509,7 +512,7 @@ export function PatientDashboard() {
                                             <p className="text-sm text-slate-500">Continuous Glucose</p>
                                         </div>
                                     </div>
-                                    <span className={`px-3 py-1 text-xs font-bold rounded-full border ${libreStatus === "SYNC_ACTIVE" ? "bg-green-50 text-green-700 border-green-100" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                    <span className={`px-3 py-1 text-xs font-bold rounded-full border ${libreStatus === "SYNC_ACTIVE" ? "bg-green-50 text-green-700 border-green-100" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
                                         {libreStatus === "SYNC_ACTIVE" ? "Sync active" : libreStatus.replaceAll("_", " ")}
                                     </span>
                                 </div>
@@ -523,7 +526,7 @@ export function PatientDashboard() {
                                 {libreErrorMessage && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">{libreErrorMessage}</p>}
                                 <ol className="text-sm text-slate-600 list-decimal pl-5 space-y-1">
                                     <li>Open Libre app &gt; Connected Apps / Share &gt; LibreLinkUp.</li>
-                                    <li>Invite this exact email: <span className="font-semibold">{(session?.user as any)?.email ?? "{{user_email}}"}</span></li>
+                                    <li>Invite this exact email: <span className="font-semibold">{LIBRE_REQUIRED_INVITE_EMAIL}</span></li>
                                     <li>Open LibreLinkUp and accept the invitation with the same email.</li>
                                     <li>Keep your Libre phone online so data can upload.</li>
                                     <li>Return to Zyntra and tap Check connection.</li>
